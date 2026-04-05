@@ -3,6 +3,8 @@ const vscode = acquireVsCodeApi();
 const input = document.getElementById('featureInput');
 const button = document.getElementById('generateButton');
 const output = document.getElementById('output');
+const techStackEl = document.getElementById('techStack');
+const stackTextEl = document.getElementById('stackText');
 const defaultButtonText = button.textContent;
 
 function setLoading(isLoading) {
@@ -26,9 +28,16 @@ input.addEventListener('keydown', event => {
 	}
 });
 
+vscode.postMessage({
+	command: 'ready'
+});
+
 window.addEventListener('message', event => {
 	const message = event.data;
-	if (message.command === 'result') {
+	if (message.command === 'init') {
+		stackTextEl.textContent = message.detectedStack;
+		techStackEl.style.display = 'block';
+	} else if (message.command === 'result') {
 		output.textContent = message.testCases;
 		setLoading(false);
 	}
