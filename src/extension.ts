@@ -6,7 +6,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	console.log('IntelliTest extension activated');
 
 	// Show welcome message
-	void vscode.window.showInformationMessage('Welcome to IntelliTest! Generate test cases from feature descriptions.');
+	void vscode.window.showInformationMessage('Welcome to IntelliTest! Generate test cases from prompts.');
 
 	// Detect tech stack from workspace
 	const workspaceFolder = vscode.workspace.workspaceFolders?.[0];

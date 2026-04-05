@@ -1,7 +1,7 @@
 export type WebviewMessage =
 	| {
 		command: 'generate';
-		feature: string;
+		prompt: string;
 	}
 	| {
 		command: 'ready';

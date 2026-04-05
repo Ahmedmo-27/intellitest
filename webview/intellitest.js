@@ -1,6 +1,6 @@
 const vscode = acquireVsCodeApi();
 
-const input = document.getElementById('featureInput');
+const input = document.getElementById('promptInput');
 const button = document.getElementById('generateButton');
 const output = document.getElementById('output');
 const techStackEl = document.getElementById('techStack');
@@ -12,19 +12,19 @@ function setLoading(isLoading) {
 	button.textContent = isLoading ? 'Generating...' : defaultButtonText;
 }
 
-function submitFeature() {
+function submitPrompt() {
 	setLoading(true);
 	vscode.postMessage({
 		command: 'generate',
-		feature: input.value.trim()
+		prompt: input.value.trim()
 	});
 }
 
-button.addEventListener('click', submitFeature);
+button.addEventListener('click', submitPrompt);
 
 input.addEventListener('keydown', event => {
 	if (event.key === 'Enter') {
-		submitFeature();
+		submitPrompt();
 	}
 });
 

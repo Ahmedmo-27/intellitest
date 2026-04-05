@@ -29,7 +29,7 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 		webview.onDidReceiveMessage((message: WebviewMessage) => {
 			if (message.command === 'generate') {
-				void this.handleGenerate(message.feature);
+				void this.handleGenerate(message.prompt);
 			}
 
 			if (message.command === 'ready') {
@@ -43,12 +43,12 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		webview.html = getWebviewHtml(this.extensionUri, webview);
 	}
 
-	private async handleGenerate(featureInput: string): Promise<void> {
-		const feature = (featureInput ?? '').trim();
+	private async handleGenerate(promptInput: string): Promise<void> {
+		const prompt = (promptInput ?? '').trim();
 
-		if (!feature) {
-			this.postResult('Please enter a feature description to generate test cases.');
-			void vscode.window.showInformationMessage('Please enter a feature description first.');
+		if (!prompt) {
+			this.postResult('Please enter a prompt to generate test cases.');
+			void vscode.window.showInformationMessage('Please enter a prompt first.');
 			return;
 		}
 
@@ -59,7 +59,7 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					title: 'Generating IntelliTest test cases',
 					cancellable: false
 				},
-				async () => generateTestCases(feature, this.detectedStack)
+				async () => generateTestCases(prompt, this.detectedStack)
 			);
 
 			this.postResult(testCases);
