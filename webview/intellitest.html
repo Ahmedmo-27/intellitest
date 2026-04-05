@@ -10,7 +10,7 @@
 <body>
     <main class="container">
         <h1>IntelliTest</h1>
-        <p class="description">Generate test cases from your prompt, detected stack, and intelligent codebase analysis.</p>
+        <p class="description">Generate personalized test cases using your prompt plus an intelligent full project-wide codebase scan.</p>
 
         <div class="info-card" id="techStack" style="display: none;">
             <div class="info-label">Detected Tech Stack</div>
@@ -27,11 +27,38 @@
             >
         </div>
 
-        <button id="generateButton" class="btn-primary">Generate Test Cases</button>
+        <div class="actions">
+            <button id="generateButton" class="btn-primary">Generate Test Cases</button>
+            <button id="exportButton" class="btn-primary btn-export" disabled>Export to Excel</button>
+        </div>
+
+        <div class="info-card" id="frameworkCard">
+            <div class="info-label">Recommended Testing Framework</div>
+            <div id="framework" class="info-value">Not generated yet</div>
+        </div>
 
         <div class="output-section">
-            <div class="output-label">Test Cases</div>
-            <pre id="output" class="output-content">Your generated test cases will appear here.</pre>
+            <div class="output-label">Test Cases Preview</div>
+            <div class="table-wrap">
+                <table class="preview-table" id="previewTable">
+                    <thead>
+                        <tr>
+                            <th>Test Case ID</th>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>Preconditions</th>
+                            <th>Steps</th>
+                            <th>Expected Result</th>
+                            <th>Priority</th>
+                        </tr>
+                    </thead>
+                    <tbody id="previewBody">
+                        <tr>
+                            <td colspan="7" class="empty-row">No test cases generated yet.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </main>
 

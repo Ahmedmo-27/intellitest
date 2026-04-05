@@ -1,8 +1,15 @@
 import * as vscode from 'vscode';
 import { buildCodebaseContext } from '../services/codebaseContext';
+import { exportTestCasesToExcel } from '../services/excel';
 import { generateTestCases } from '../services/groq';
+import type { GeneratedTestCases } from '../types/testCases';
 import type { WebviewMessage } from '../types/messages';
 import { getWebviewHtml } from '../webview/template';
+
+const EMPTY_GENERATION: GeneratedTestCases = {
+	recommendedTestingFramework: 'Not generated yet',
+	testCases: []
+};
 
 export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'intellitestView';
@@ -10,6 +17,7 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 	private readonly extensionUri: vscode.Uri;
 	private readonly detectedStack: string;
 	private view?: vscode.WebviewView;
+	private latestGenerated: GeneratedTestCases = EMPTY_GENERATION;
 
 	public constructor(extensionUri: vscode.Uri, detectedStack: string) {
 		this.extensionUri = extensionUri;
@@ -29,15 +37,19 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		};
 
 		webview.onDidReceiveMessage((message: WebviewMessage) => {
-			if (message.command === 'generate') {
-				void this.handleGenerate(message.prompt);
-			}
-
-			if (message.command === 'ready') {
-				void webview.postMessage({
-					command: 'init',
-					detectedStack: this.detectedStack
-				});
+			switch (message.command) {
+				case 'generate':
+					void this.handleGenerate(message.prompt);
+					break;
+				case 'exportExcel':
+					void this.handleExportExcel();
+					break;
+				case 'ready':
+					void webview.postMessage({
+						command: 'init',
+						detectedStack: this.detectedStack
+					});
+					break;
 			}
 		});
 
@@ -48,7 +60,8 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		const prompt = (promptInput ?? '').trim();
 
 		if (!prompt) {
-			this.postResult('Please enter a prompt to generate test cases.');
+			this.latestGenerated = EMPTY_GENERATION;
+			this.postResult(this.latestGenerated);
 			void vscode.window.showInformationMessage('Please enter a prompt first.');
 			return;
 		}
@@ -57,7 +70,7 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 			const codebaseContext = buildCodebaseContext(workspaceRootPath);
 
-			const testCases = await vscode.window.withProgress(
+			this.latestGenerated = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
 					title: 'Generating IntelliTest test cases',
@@ -66,19 +79,58 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 				async () => generateTestCases(prompt, this.detectedStack, codebaseContext)
 			);
 
-			this.postResult(testCases);
+			this.postResult(this.latestGenerated);
 			void vscode.window.showInformationMessage('IntelliTest generated test cases successfully.');
 		} catch (error) {
-			this.postResult('Something went wrong while generating test cases. Please try again.');
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${errorMessage}`);
 		}
 	}
 
-	private postResult(testCases: string): void {
+	private async handleExportExcel(): Promise<void> {
+		this.postExportStatus(true);
+
+		if (this.latestGenerated.testCases.length === 0) {
+			void vscode.window.showWarningMessage('No generated test cases available to export.');
+			this.postExportStatus(false);
+			return;
+		}
+
+		try {
+			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			const outputUri = await exportTestCasesToExcel(this.latestGenerated.testCases, workspaceRootPath);
+
+			const action = await vscode.window.showInformationMessage(
+				'Excel file generated successfully',
+				'Open Folder'
+			);
+
+			if (action === 'Open Folder') {
+				await vscode.commands.executeCommand('revealFileInOS', outputUri);
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			if (errorMessage.includes('cancelled')) {
+				return;
+			}
+			void vscode.window.showErrorMessage(`Excel export failed: ${errorMessage}`);
+		} finally {
+			this.postExportStatus(false);
+		}
+	}
+
+	private postResult(generated: GeneratedTestCases): void {
 		void this.view?.webview.postMessage({
 			command: 'result',
-			testCases
+			testCases: generated.testCases,
+			recommendedTestingFramework: generated.recommendedTestingFramework
+		});
+	}
+
+	private postExportStatus(isExporting: boolean): void {
+		void this.view?.webview.postMessage({
+			command: 'exportStatus',
+			isExporting
 		});
 	}
 }

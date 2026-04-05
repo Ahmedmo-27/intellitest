@@ -55,6 +55,19 @@ h1 {
 	font-weight: 500;
 }
 
+#frameworkCard {
+	padding: 7px 9px;
+	margin-bottom: 6px;
+}
+
+#frameworkCard .info-label {
+	margin-bottom: 2px;
+}
+
+#frameworkCard .info-value {
+	font-size: 11px;
+}
+
 .form-group {
 	display: flex;
 	flex-direction: column;
@@ -102,6 +115,24 @@ label {
 	min-height: 28px;
 }
 
+.actions {
+	display: flex;
+	gap: 8px;
+}
+
+.actions .btn-primary {
+	flex: 1;
+}
+
+
+.btn-export:disabled {
+	background-color: var(--vscode-editor-background);
+	color: var(--vscode-descriptionForeground);
+	border: 1px solid var(--vscode-widget-border);
+	opacity: 1;
+	cursor: not-allowed;
+}
+
 .btn-primary:hover:not(:disabled) {
 	background-color: var(--vscode-button-hoverBackground);
 }
@@ -124,19 +155,40 @@ label {
 	color: var(--vscode-foreground);
 }
 
-.output-content {
-	margin: 0;
-	padding: 8px;
+.table-wrap {
+	overflow: auto;
+	max-height: 360px;
 	border: 1px solid var(--vscode-widget-border);
 	border-radius: 2px;
-	background-color: var(--vscode-editor-background);
-	color: var(--vscode-foreground);
-	font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+}
+
+.preview-table {
+	width: 100%;
+	min-width: 980px;
+	border-collapse: collapse;
 	font-size: 12px;
-	line-height: 1.5;
+}
+
+.preview-table th,
+.preview-table td {
+	border-bottom: 1px solid var(--vscode-widget-border);
+	padding: 9px 10px;
+	text-align: left;
+	vertical-align: top;
 	white-space: pre-wrap;
-	word-wrap: break-word;
-	max-height: 300px;
-	overflow-y: auto;
-	outline: none;
+	line-height: 1.45;
+	word-break: break-word;
+}
+
+.preview-table th {
+	position: sticky;
+	top: 0;
+	background-color: var(--vscode-editor-background);
+	font-weight: 600;
+	z-index: 1;
+}
+
+.empty-row {
+	text-align: center;
+	color: var(--vscode-descriptionForeground);
 }
