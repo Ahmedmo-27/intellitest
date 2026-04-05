@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { buildCodebaseContext } from '../services/codebaseContext';
 import { generateTestCases } from '../services/groq';
 import type { WebviewMessage } from '../types/messages';
 import { getWebviewHtml } from '../webview/template';
@@ -53,13 +54,16 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		try {
+			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			const codebaseContext = buildCodebaseContext(workspaceRootPath);
+
 			const testCases = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
 					title: 'Generating IntelliTest test cases',
 					cancellable: false
 				},
-				async () => generateTestCases(prompt, this.detectedStack)
+				async () => generateTestCases(prompt, this.detectedStack, codebaseContext)
 			);
 
 			this.postResult(testCases);

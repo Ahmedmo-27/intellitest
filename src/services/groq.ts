@@ -5,14 +5,24 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const SYSTEM_PROMPT =
 	'You are a senior QA engineer. Generate structured, concise, practical software test cases. Use clear sections and numbered test cases with title, preconditions, steps, and expected result.';
 
-export async function generateTestCases(prompt: string, detectedStack: string): Promise<string> {
+export async function generateTestCases(
+	prompt: string,
+	detectedStack: string,
+	codebaseContext: string
+): Promise<string> {
 	const apiKey = process.env.GROQ_API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
 
 	if (!apiKey) {
 		throw new Error('Missing GROQ_API_KEY environment variable.');
 	}
 
-	const finalUserPrompt = `Generate structured test cases for this prompt: "${prompt}" in a ${detectedStack} project.`;
+	const finalUserPrompt = [
+		`User Prompt: ${prompt}`,
+		`Detected Tech Stack: ${detectedStack}`,
+		'Codebase Context (summarized from project files):',
+		codebaseContext,
+		'Generate structured test cases based on all the above context.'
+	].join('\n\n');
 
 	try {
 		const response = await axios.post(
