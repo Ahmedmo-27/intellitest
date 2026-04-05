@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import axios from 'axios';
 import * as vscode from 'vscode';
 
 type WebviewMessage =
@@ -10,6 +11,11 @@ type WebviewMessage =
 	| {
 		command: 'ready';
 	};
+
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const SYSTEM_PROMPT =
+	'You are a senior QA engineer. Generate structured, concise, practical software test cases. Use clear sections and numbered test cases with title, preconditions, steps, and expected result.';
 
 const ignoredFolders = new Set([
 	'.git',
@@ -152,8 +158,7 @@ class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					cancellable: false
 				},
 				async () => {
-					await this.delay(300);
-					testCases = this.buildTestCases(feature);
+					testCases = await this.generateTestCases(feature);
 				}
 			);
 
@@ -161,8 +166,45 @@ class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			void vscode.window.showInformationMessage('IntelliTest generated test cases successfully.');
 		} catch (error) {
 			this.postResult('Something went wrong while generating test cases. Please try again.');
-			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${String(error)}`);
+			const errorMessage = axios.isAxiosError(error)
+				? (error.response?.data?.error?.message ?? error.message)
+				: String(error);
+			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${errorMessage}`);
 		}
+	}
+
+	private async generateTestCases(feature: string): Promise<string> {
+		const apiKey = process.env.GROQ_API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+
+		if (!apiKey) {
+			throw new Error('Missing GROQ_API_KEY environment variable.');
+		}
+
+		const finalUserPrompt = `Generate structured test cases for a ${feature} in a ${this.detectedStack} project.`;
+
+		const response = await axios.post(
+			GROQ_API_URL,
+			{
+				model: GROQ_MODEL,
+				messages: [
+					{ role: 'system', content: SYSTEM_PROMPT },
+					{ role: 'user', content: finalUserPrompt }
+				]
+			},
+			{
+				headers: {
+					Authorization: `Bearer ${apiKey}`,
+					'Content-Type': 'application/json'
+				}
+			}
+		);
+
+		const content = response.data?.choices?.[0]?.message?.content;
+		if (typeof content !== 'string' || !content.trim()) {
+			throw new Error('Groq API returned an empty response.');
+		}
+
+		return content;
 	}
 
 	private postResult(testCases: string): void {
@@ -170,10 +212,6 @@ class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			command: 'result',
 			testCases
 		});
-	}
-
-	private buildTestCases(feature: string): string {
-		return `Test Cases for "${feature}":\n1. Valid input\n2. Invalid input\n3. Empty fields\n4. Edge cases`;
 	}
 
 	private getHtml(webview: vscode.Webview): string {
@@ -188,9 +226,6 @@ class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			.replace(/{{scriptUri}}/g, scriptUri.toString());
 	}
 
-	private delay(milliseconds: number): Promise<void> {
-		return new Promise(resolve => setTimeout(resolve, milliseconds));
-	}
 }
 
 export async function activate(context: vscode.ExtensionContext) {
