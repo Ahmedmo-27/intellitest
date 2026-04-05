@@ -85,14 +85,24 @@ IntelliTest is a VS Code sidebar extension that generates starter test cases fro
 - `deactivate()`
   - No-op cleanup hook.
 
-## How To Run
+## Run Locally (Initial Setup)
 
-1. Install dependencies:
-   - `npm install`
-2. Build:
-   - `npm run compile`
-3. Press `F5` in VS Code to launch Extension Development Host.
-4. Open IntelliTest from Activity Bar.
+Use these steps the first time you run the extension on your machine.
+
+1. Open the project folder in VS Code.
+2. Install dependencies:
+  - `npm i`
+3. Start the extension in a new Extension Development Host window:
+  - Press `F5` (Run Extension from `.vscode/launch.json`).
+  - VS Code runs the pre-launch build task automatically.
+4. In the new window, click IntelliTest in the Activity Bar and use the sidebar.
+
+## Daily Development Run
+
+1. Start TypeScript watch mode:
+  - `npm run watch`
+2. Press `F5` to launch the Extension Development Host.
+3. After code changes, reload the host window to pick up updates.
 
 ## Current Behavior Notes
 
