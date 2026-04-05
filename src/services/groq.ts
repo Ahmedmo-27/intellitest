@@ -19,7 +19,7 @@ export async function generateTestCases(
 	const finalUserPrompt = [
 		`User Prompt: ${prompt}`,
 		`Detected Tech Stack: ${detectedStack}`,
-		'Codebase Context (summarized from project files):',
+		'Codebase Context (project file names from a broad scan):',
 		codebaseContext,
 		'Generate structured test cases based on all the above context.'
 	].join('\n\n');
