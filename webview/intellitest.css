@@ -180,6 +180,13 @@ label {
 	word-break: break-word;
 }
 
+.preview-table th:nth-child(7),
+.preview-table td:nth-child(7) {
+	white-space: nowrap;
+	word-break: normal;
+	min-width: 90px;
+}
+
 .preview-table th {
 	position: sticky;
 	top: 0;
