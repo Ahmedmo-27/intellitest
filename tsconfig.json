@@ -6,6 +6,9 @@
 		"lib": [
 			"ES2022", "ESNext", "DOM"
 		],
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"types": ["node"],
 		"sourceMap": true,
 		"rootDir": "src",
 		"strict": true,   /* enable all strict type-checking options */

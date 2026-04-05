@@ -1,0 +1,124 @@
+:root {
+	color-scheme: light;
+	--bg: #f6f8fc;
+	--panel: #ffffff;
+	--border: #d9e2f2;
+	--text: #172033;
+	--muted: #5d6b84;
+	--accent: #2563eb;
+	--accent-hover: #1d4ed8;
+	--shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: 16px;
+	font-family: "Segoe UI", sans-serif;
+	background: linear-gradient(180deg, #eef3fb 0%, var(--bg) 100%);
+	color: var(--text);
+}
+
+.card {
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	padding: 16px;
+	box-shadow: var(--shadow);
+}
+
+.eyebrow {
+	display: block;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--accent);
+	margin-bottom: 8px;
+}
+
+h1 {
+	margin: 0 0 8px;
+	font-size: 22px;
+}
+
+.subtitle {
+	margin: 0 0 16px;
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 12px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--muted);
+}
+
+input {
+	width: 100%;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 12px 14px;
+	font: inherit;
+	color: var(--text);
+	background: #fff;
+	outline: none;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+}
+
+button {
+	width: 100%;
+	border: 0;
+	border-radius: 10px;
+	padding: 12px 14px;
+	font: inherit;
+	font-weight: 700;
+	color: #fff;
+	background: linear-gradient(135deg, var(--accent), #4f46e5);
+	cursor: pointer;
+	transition: transform 0.12s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+	background: linear-gradient(135deg, var(--accent-hover), #4338ca);
+	transform: translateY(-1px);
+}
+
+button:disabled {
+	opacity: 0.7;
+	cursor: progress;
+}
+
+.output {
+	margin-top: 16px;
+	padding: 14px;
+	border: 1px dashed var(--border);
+	border-radius: 12px;
+	background: #fbfcff;
+	min-height: 120px;
+	white-space: pre-wrap;
+	line-height: 1.6;
+	color: var(--text);
+	font-family: "Segoe UI", sans-serif;
+	font-size: 13px;
+}
+
+.hint {
+	margin-top: 8px;
+	font-size: 12px;
+	color: var(--muted);
+	margin-bottom: 0;
+}

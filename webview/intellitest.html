@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https:; style-src {{cspSource}}; script-src {{cspSource}};">
+    <title>IntelliTest</title>
+    <link rel="stylesheet" href="{{styleUri}}">
+</head>
+<body>
+    <main class="card">
+        <div class="eyebrow">Test Generation</div>
+        <h1>IntelliTest</h1>
+        <p class="subtitle">Describe a feature and generate a starter set of test cases instantly.</p>
+
+        <label class="field" for="featureInput">
+            <span>Feature description</span>
+            <input id="featureInput" type="text" placeholder="Enter feature (e.g., Login system)">
+        </label>
+
+        <button id="generateButton" type="button">Generate Test Cases</button>
+
+        <pre class="output" id="output">Your generated test cases will appear here.</pre>
+        <p class="hint">This is a local simulation for now. No API calls are made.</p>
+    </main>
+
+    <script src="{{scriptUri}}"></script>
+</body>
+</html>

@@ -1,71 +1,101 @@
-# intellitest README
+# IntelliTest
 
-This is the README for your extension "intellitest". After writing up a brief description, we recommend including the following sections.
+IntelliTest is a VS Code sidebar extension that generates starter test cases from a feature description.
 
-## Features
+## What It Does
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- Adds an IntelliTest icon in the Activity Bar.
+- Opens a sidebar webview with input + generate button.
+- Sends the feature text from webview to extension backend.
+- Simulates test case generation.
+- Sends generated result back to webview and renders it.
 
-For example if there is an image subfolder under your extension project workspace:
+## Technical Flow (Simple)
 
-\!\[feature X\]\(images/feature-x.png\)
+1. User opens the `IntelliTest` sidebar.
+2. VS Code activates the extension via `onView:intellitestView`.
+3. `IntelliTestViewProvider` loads webview HTML and injects CSS/JS URIs.
+4. User clicks Generate in the webview.
+5. Frontend JS posts `{ command: 'generate', feature }` to backend.
+6. Backend runs generation logic with progress notification.
+7. Backend posts `{ command: 'result', testCases }` back to webview.
+8. Frontend receives result, updates output, and stops loading state.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Files and Responsibilities
 
-## Requirements
+- `src/extension.ts`
+  - Extension entry point and backend logic.
+  - Registers `WebviewViewProvider`.
+  - Handles webview messages and generation flow.
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- `webview/intellitest.html`
+  - Sidebar UI structure (input, button, output).
 
-## Extension Settings
+- `webview/intellitest.css`
+  - Sidebar styling.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+- `webview/intellitest.js`
+  - Frontend behavior:
+  - button click and Enter handling
+  - loading state updates
+  - message send/receive with backend
 
-For example:
+- `media/intellitest.svg`
+  - Activity Bar icon.
 
-This extension contributes the following settings:
+- `package.json`
+  - Contribution points:
+  - Activity Bar container
+  - Sidebar view (`intellitestView`)
+  - Activation event (`onView:intellitestView`)
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+## Main Class and Functions
 
-## Known Issues
+### Class: `IntelliTestViewProvider`
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- `resolveWebviewView(webviewView)`
+  - Configures webview options.
+  - Loads HTML template.
+  - Listens to frontend messages.
 
-## Release Notes
+- `handleGenerate(featureInput)`
+  - Validates input.
+  - Runs progress UI.
+  - Builds result text.
+  - Sends result to webview.
 
-Users appreciate release notes as you update your extension.
+- `postResult(testCases)`
+  - Sends backend response to the webview.
 
-### 1.0.0
+- `buildTestCases(feature)`
+  - Returns simulated test cases string.
 
-Initial release of ...
+- `getHtml(webview)`
+  - Reads HTML template from disk.
+  - Injects webview-safe CSS/JS URIs.
 
-### 1.0.1
+- `delay(milliseconds)`
+  - Small async delay for simulated processing.
 
-Fixed issue #.
+### Extension Lifecycle
 
-### 1.1.0
+- `activate(context)`
+  - Registers `IntelliTestViewProvider`.
 
-Added features X, Y, and Z.
+- `deactivate()`
+  - No-op cleanup hook.
 
----
+## How To Run
 
-## Following extension guidelines
+1. Install dependencies:
+   - `npm install`
+2. Build:
+   - `npm run compile`
+3. Press `F5` in VS Code to launch Extension Development Host.
+4. Open IntelliTest from Activity Bar.
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+## Current Behavior Notes
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+- Generation is simulated (no external API yet).
+- Empty input returns a friendly message.
+- Success and progress notifications are shown by backend.
