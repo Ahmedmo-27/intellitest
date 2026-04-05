@@ -1,111 +1,126 @@
 # IntelliTest
 
-IntelliTest is a VS Code sidebar extension that generates starter test cases from a feature description.
+AI-powered VS Code extension for generating structured software test cases.
 
-## What It Does
+IntelliTest is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
 
-- Adds an IntelliTest icon in the Activity Bar.
-- Opens a sidebar webview with input + generate button.
-- Sends the feature text from webview to extension backend.
-- Simulates test case generation.
-- Sends generated result back to webview and renders it.
+## Features
 
-## Technical Flow (Simple)
+- AI-powered test case generation
+- VS Code sidebar UI
+- Tech stack detection
+- Excel export functionality
+- Clean VS Code-native UI design
 
-1. User opens the `IntelliTest` sidebar.
-2. VS Code activates the extension via `onView:intellitestView`.
-3. `IntelliTestViewProvider` loads webview HTML and injects CSS/JS URIs.
-4. User clicks Generate in the webview.
-5. Frontend JS posts `{ command: 'generate', feature }` to backend.
-6. Backend runs generation logic with progress notification.
-7. Backend posts `{ command: 'result', testCases }` back to webview.
-8. Frontend receives result, updates output, and stops loading state.
+## Demo / Preview
 
-## Files and Responsibilities
+Add screenshots here:
+
+- Sidebar overview
+- Generated test case table preview
+- Export success flow
+
+## Installation
+
+1. Clone the repository.
+2. Install dependencies:
+   `npm install`
+3. Open the project in VS Code.
+4. Press `F5` to run the extension in an Extension Development Host window.
+
+## Project Structure
+
+Key files and folders:
 
 - `src/extension.ts`
-  - Extension entry point and backend logic.
-  - Registers `WebviewViewProvider`.
-  - Handles webview messages and generation flow.
+  - Extension activation and registration of the webview provider.
+  - Main backend entrypoint for VS Code integration.
+
+- `src/providers/IntelliTestViewProvider.ts`
+  - Core backend view logic: prompt handling, AI generation flow, export flow, and webview messaging.
+
+- `src/services/groq.ts`
+  - AI API integration layer (Groq) and structured JSON parsing.
+
+- `src/services/techStack.ts`
+  - Detects project technology stack from workspace files.
+
+- `src/services/codebaseContext.ts`
+  - Builds codebase context from scanned project file names.
+
+- `src/services/excel.ts`
+  - Excel generation and file export using `xlsx`.
+
+- `webview/`
+  - Frontend sidebar UI assets.
 
 - `webview/intellitest.html`
-  - Sidebar UI structure (input, button, output).
-
-- `webview/intellitest.css`
-  - Sidebar styling.
+  - Sidebar layout and UI structure.
 
 - `webview/intellitest.js`
-  - Frontend behavior:
-  - button click and Enter handling
-  - loading state updates
-  - message send/receive with backend
+  - Handles UI interactions and message passing with backend.
 
-- `media/intellitest.svg`
-  - Activity Bar icon.
+- `webview/intellitest.css`
+  - VS Code-themed styling using theme variables.
 
 - `package.json`
-  - Contribution points:
-  - Activity Bar container
-  - Sidebar view (`intellitestView`)
-  - Activation event (`onView:intellitestView`)
+  - Extension manifest, contributions, scripts, and dependencies.
 
-## Main Class and Functions
+- `AI_CONTEXT.md`
+  - Context file for AI tools and coding assistants.
 
-### Class: `IntelliTestViewProvider`
+Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webview/style.css`, this project currently uses `intellitest.html`, `intellitest.js`, and `intellitest.css` with the same roles.
 
-- `resolveWebviewView(webviewView)`
-  - Configures webview options.
-  - Loads HTML template.
-  - Listens to frontend messages.
+## How It Works
 
-- `handleGenerate(featureInput)`
-  - Validates input.
-  - Runs progress UI.
-  - Builds result text.
-  - Sends result to webview.
+1. User enters a prompt in the IntelliTest sidebar.
+2. Extension detects the project tech stack.
+3. Request is sent to AI (Groq API) with prompt + project context.
+4. AI returns structured JSON test cases.
+5. Results are displayed in the sidebar table preview.
+6. User can export generated test cases to Excel.
 
-- `postResult(testCases)`
-  - Sends backend response to the webview.
+## AI Integration
 
-- `buildTestCases(feature)`
-  - Returns simulated test cases string.
+- Uses Groq API for LLM inference.
+- Requires `GROQ_API_KEY`.
+- Backend builds system and user prompts, requests structured JSON, and normalizes responses.
 
-- `getHtml(webview)`
-  - Reads HTML template from disk.
-  - Injects webview-safe CSS/JS URIs.
+### API Key Setup
 
-- `delay(milliseconds)`
-  - Small async delay for simulated processing.
+Set your key before running:
 
-### Extension Lifecycle
+- Environment variable: `GROQ_API_KEY`
 
-- `activate(context)`
-  - Registers `IntelliTestViewProvider`.
+For local VS Code debugging, `.vscode/launch.json` can load environment variables from `.env`.
 
-- `deactivate()`
-  - No-op cleanup hook.
+## Excel Export
 
-## Run Locally (Initial Setup)
+- Uses `xlsx` library.
+- Generates `.xlsx` files locally.
+- Output filename format includes timestamp, for example:
+  - `test_cases_DD-MM-YY_HH-MM-SS.xlsx`
+- Export includes columns:
+  - Test Case ID
+  - Title
+  - Description
+  - Preconditions
+  - Steps
+  - Expected Result
+  - Priority
 
-Use these steps the first time you run the extension on your machine.
+## Configuration
 
-1. Open the project folder in VS Code.
-2. Install dependencies:
-  - `npm i`
-3. Start the extension in a new Extension Development Host window:
-  - Press `F5` (Run Extension from `.vscode/launch.json`).
-  - VS Code runs the pre-launch build task automatically.
-4. In the new window, click IntelliTest in the Activity Bar and use the sidebar.
+- Required:
+  - `GROQ_API_KEY`
+- Recommended:
+  - Keep `.env` local and out of source control.
+  - Ensure your debug launch configuration loads your environment values.
 
-## Daily Development Run
+## Development Notes
 
-1. Start TypeScript watch mode:
-  - `npm run watch`
-2. Press `F5` to launch the Extension Development Host.
-3. After code changes, reload the host window to pick up updates.
-
-## Current Behavior Notes
-
-- Generation is simulated (no external API yet).
-- Empty input returns a friendly message.
-- Success and progress notifications are shown by backend.
+- Uses VS Code Webview API for sidebar UI.
+- Frontend and backend communicate through message passing.
+- Async operations are handled with `async/await`.
+- Build command:
+  - `npm run compile`
