@@ -8,20 +8,26 @@
     <link rel="stylesheet" href="{{styleUri}}">
 </head>
 <body>
-    <main class="card">
-        <div class="eyebrow">Test Generation</div>
+    <main class="container">
         <h1>IntelliTest</h1>
-        <p class="subtitle">Describe a feature and generate a starter set of test cases instantly.</p>
+        <p class="description">Generate test cases from a feature description.</p>
 
-        <label class="field" for="featureInput">
-            <span>Feature description</span>
-            <input id="featureInput" type="text" placeholder="Enter feature (e.g., Login system)">
-        </label>
+        <div class="form-group">
+            <label for="featureInput">Feature</label>
+            <input 
+                id="featureInput" 
+                type="text" 
+                placeholder="e.g., Login system" 
+                class="input-field"
+            >
+        </div>
 
-        <button id="generateButton" type="button">Generate Test Cases</button>
+        <button id="generateButton" class="btn-primary">Generate Test Cases</button>
 
-        <pre class="output" id="output">Your generated test cases will appear here.</pre>
-        <p class="hint">This is a local simulation for now. No API calls are made.</p>
+        <div class="output-section">
+            <div class="output-label">Test Cases</div>
+            <pre id="output" class="output-content">Your generated test cases will appear here.</pre>
+        </div>
     </main>
 
     <script src="{{scriptUri}}"></script>
