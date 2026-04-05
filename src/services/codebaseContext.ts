@@ -1,6 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+const MAX_FILES_IN_CONTEXT = 120;
+const MAX_CONTEXT_CHARS = 3500;
+
 const ignoredFolders = new Set([
 	'.git',
 	'.vscode',
@@ -8,11 +11,18 @@ const ignoredFolders = new Set([
 	'venv',
 	'env',
 	'node_modules',
+	'vendor',
 	'dist',
 	'out',
 	'build',
 	'target',
-	'coverage'
+	'coverage',
+	'.next',
+	'.nuxt',
+	'.cache',
+	'tmp',
+	'temp',
+	'logs'
 ]);
 
 function collectProjectFileNames(rootPath: string): string[] {
@@ -46,6 +56,13 @@ export function buildCodebaseContext(workspaceRootPath: string | undefined): str
 		return 'No project files were found for context.';
 	}
 
-	const lines = ['Project files detected:', ...projectFiles.map(file => `- ${file}`)];
-	return lines.join('\n');
+	const selectedFiles = projectFiles.slice(0, MAX_FILES_IN_CONTEXT);
+	const lines = ['Project files detected:', ...selectedFiles.map(file => `- ${file}`)];
+
+	let context = lines.join('\n');
+	if (context.length > MAX_CONTEXT_CHARS) {
+		context = `${context.slice(0, MAX_CONTEXT_CHARS)}\n...[truncated]`;
+	}
+
+	return context;
 }

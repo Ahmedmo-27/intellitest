@@ -9,11 +9,18 @@ const ignoredFolders = new Set([
 	'venv',
 	'env',
 	'node_modules',
+	'vendor',
 	'dist',
 	'out',
 	'build',
 	'target',
-	'coverage'
+	'coverage',
+	'.next',
+	'.nuxt',
+	'.cache',
+	'tmp',
+	'temp',
+	'logs'
 ]);
 
 function collectWorkspaceFiles(rootPath: string): string[] {
