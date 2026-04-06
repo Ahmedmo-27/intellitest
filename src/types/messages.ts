@@ -1,11 +1,20 @@
 export type WebviewMessage =
 	| {
-		command: 'generate';
-		prompt: string;
-	}
+			command: 'generate';
+			prompt: string;
+	  }
 	| {
-		command: 'exportExcel';
-	}
+			command: 'exportExcel';
+	  }
 	| {
-		command: 'ready';
-	};
+			command: 'ready';
+	  }
+	| {
+			command: 'copyTestScript';
+			code: string;
+	  }
+	| {
+			command: 'saveTestScript';
+			filename: string;
+			code: string;
+	  };

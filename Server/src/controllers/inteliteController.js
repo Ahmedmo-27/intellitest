@@ -1,13 +1,15 @@
 import * as promptService from "../services/promptService.js";
 import * as llmService from "../services/llmService.js";
 import * as formatter from "../utils/formatter.js";
-import { logger } from "../utils/logger.js";
+import { logTerminalSection, logger } from "../utils/logger.js";
 
 /**
  * POST /generate-testcases
  */
 export async function generateTestCases(req, res) {
   try {
+    logTerminalSection("Extension → server (raw POST JSON body)", req.body);
+    logTerminalSection("Extension → server (normalized project map)", req.projectMap ?? req.body);
     const prompt = promptService.generateTestCasesPrompt(req.projectMap);
     const raw = await llmService.complete(prompt);
     const testCases = formatter.parseTestCasesArray(raw);
@@ -17,7 +19,7 @@ export async function generateTestCases(req, res) {
     logger.error("generate_testcases_failed", { message: err.message });
     return res.status(502).json({
       error: "Failed to generate test cases",
-      detail: process.env.NODE_ENV === "development" ? err.message : undefined,
+      detail: err.message,
     });
   }
 }
@@ -27,6 +29,7 @@ export async function generateTestCases(req, res) {
  */
 export async function generateTests(req, res) {
   try {
+    logTerminalSection("Extension → server (generate-tests project map)", req.projectMap ?? req.body);
     const prompt = promptService.generateTestScriptsPrompt(req.projectMap);
     const raw = await llmService.complete(prompt);
     const script = formatter.parseTestScript(raw);
@@ -36,7 +39,7 @@ export async function generateTests(req, res) {
     logger.error("generate_tests_failed", { message: err.message });
     return res.status(502).json({
       error: "Failed to generate test scripts",
-      detail: process.env.NODE_ENV === "development" ? err.message : undefined,
+      detail: err.message,
     });
   }
 }
@@ -46,6 +49,7 @@ export async function generateTests(req, res) {
  */
 export async function analyzeFailure(req, res) {
   try {
+    logTerminalSection("Extension → server (analyze-failure payload)", req.failurePayload ?? req.body);
     const prompt = promptService.analyzeFailurePrompt(req.failurePayload);
     const raw = await llmService.complete(prompt);
     const analysis = formatter.parseFailureAnalysis(raw);

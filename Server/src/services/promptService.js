@@ -6,7 +6,7 @@
 function projectContextBlock(map) {
   return [
     "Project context (structured):",
-    `- type: ${map.type}`,
+    `- type (web domain / product category, e.g. e-commerce, LMS): ${map.type}`,
     `- language: ${map.language}`,
     `- framework: ${map.framework}`,
     `- modules: ${JSON.stringify(map.modules ?? [])}`,
@@ -19,7 +19,11 @@ function projectContextBlock(map) {
  */
 export function generateTestCasesPrompt(projectMap) {
   const ctx = projectContextBlock(projectMap);
-  return `You are a senior QA engineer. ${ctx}
+  const testerAsk =
+    projectMap.prompt && String(projectMap.prompt).trim()
+      ? `\n\nTester request (highest priority — honor explicit scope limits; otherwise broaden sensibly):\n${String(projectMap.prompt).trim()}\n`
+      : "";
+  return `You are a senior QA engineer. ${ctx}${testerAsk}
 
 Task: Propose manual test cases that cover critical user flows and edge cases for this system.
 
@@ -52,15 +56,26 @@ export function generateTestScriptsPrompt(projectMap) {
   }
 
   const ctx = projectContextBlock(projectMap);
-  return `You are a senior test automation engineer. ${ctx}
+  const tc =
+    Array.isArray(projectMap.testCases) && projectMap.testCases.length > 0
+      ? `\n\nManual test cases to cover with automation (implement or sketch tests aligned to these):\n${JSON.stringify(projectMap.testCases)}\n`
+      : "";
+  const testerAsk =
+    projectMap.prompt && String(projectMap.prompt).trim()
+      ? `\n\nOriginal tester intent:\n${String(projectMap.prompt).trim()}\n`
+      : "";
+  return `You are a senior test automation engineer. ${ctx}${testerAsk}${tc}
 
 Task: Generate a plausible automated test file skeleton (not full app code) that reflects modules and routes as test targets. Use mocks/stubs where APIs are unknown.
 
 Rules:
-- Output ONLY valid JSON (no markdown, no commentary).
-- Single object with keys: "framework" (${framework}), "language" (${language}), "filename" (appropriate extension), "code" (full file content as a string, escape quotes properly in JSON).
+- Output ONLY valid JSON (no markdown fences like \`\`\`, no commentary before or after the JSON).
+- Single object with keys: "framework" (must be "${framework}"), "language" (must be "${language}"), "filename" (appropriate extension, e.g. login.test.js).
+- Put the full file in "codeLines": a JSON array of strings where EACH ELEMENT IS ONE LINE of the file (index 0 = first line). This avoids broken JSON from multiline strings.
+- Do NOT use a separate "code" field unless you also provide "codeLines"; prefer "codeLines" only.
+- Framework/language/filename must be consistent (e.g. Jest + javascript + .test.js, not junit + javascript).
 
-The "code" should be runnable in spirit: imports, describe/test blocks, and TODO comments where endpoints need real URLs.`;
+The file should be runnable in spirit: imports, describe/test blocks, and TODO comments where endpoints need real URLs.`;
 }
 
 /**

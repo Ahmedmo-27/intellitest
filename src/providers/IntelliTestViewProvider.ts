@@ -1,14 +1,16 @@
 import * as vscode from 'vscode';
-import { buildCodebaseContext } from '../services/codebaseContext';
+import { generateViaBackend } from '../services/backendClient';
 import { exportTestCasesToExcel } from '../services/excel';
-import { generateTestCases } from '../services/groq';
-import type { GeneratedTestCases } from '../types/testCases';
+import { detectRecommendedTestingFramework } from '../services/testingFramework';
+import type { IntelliGenerationResult } from '../types/testCases';
+import { sanitizeTestFilename } from '../utils/testScriptNormalize';
 import type { WebviewMessage } from '../types/messages';
 import { getWebviewHtml } from '../webview/template';
 
-const EMPTY_GENERATION: GeneratedTestCases = {
+const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
-	testCases: []
+	testCases: [],
+	testScript: null
 };
 
 export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
@@ -16,12 +18,19 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 	private readonly extensionUri: vscode.Uri;
 	private readonly detectedStack: string;
+	/** Test runner(s) inferred from project files (package.json, etc.). */
+	private recommendedTestingFramework: string;
 	private view?: vscode.WebviewView;
-	private latestGenerated: GeneratedTestCases = EMPTY_GENERATION;
+	private latestGenerated: IntelliGenerationResult = EMPTY_GENERATION;
 
-	public constructor(extensionUri: vscode.Uri, detectedStack: string) {
+	public constructor(
+		extensionUri: vscode.Uri,
+		detectedStack: string,
+		recommendedTestingFramework: string
+	) {
 		this.extensionUri = extensionUri;
 		this.detectedStack = detectedStack;
+		this.recommendedTestingFramework = recommendedTestingFramework;
 	}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -44,10 +53,17 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 				case 'exportExcel':
 					void this.handleExportExcel();
 					break;
+				case 'copyTestScript':
+					void this.handleCopyTestScript(message.code);
+					break;
+				case 'saveTestScript':
+					void this.handleSaveTestScript(message.filename, message.code);
+					break;
 				case 'ready':
 					void webview.postMessage({
 						command: 'init',
-						detectedStack: this.detectedStack
+						detectedStack: this.detectedStack,
+						recommendedTestingFramework: this.recommendedTestingFramework
 					});
 					break;
 			}
@@ -66,24 +82,80 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		const backendUrl =
+			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			void vscode.window.showErrorMessage(
+				'IntelliTest: set intellitest.backendUrl in Settings (e.g. http://localhost:3000).'
+			);
+			return;
+		}
+
 		try {
 			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-			const codebaseContext = buildCodebaseContext(workspaceRootPath);
 
 			this.latestGenerated = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'Generating IntelliTest test cases',
+					title: 'IntelliTest: generating test cases…',
 					cancellable: false
 				},
-				async () => generateTestCases(prompt, this.detectedStack, codebaseContext)
+				async () => generateViaBackend(backendUrl, workspaceRootPath, this.detectedStack, prompt)
 			);
 
+			this.recommendedTestingFramework =
+				detectRecommendedTestingFramework(workspaceRootPath) || this.recommendedTestingFramework;
+
 			this.postResult(this.latestGenerated);
-			void vscode.window.showInformationMessage('IntelliTest generated test cases successfully.');
+
+			void vscode.window.showInformationMessage('IntelliTest: test cases are ready in the panel.');
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${errorMessage}`);
+		}
+	}
+
+	private async handleCopyTestScript(code: string): Promise<void> {
+		if (!code?.trim()) {
+			return;
+		}
+		await vscode.env.clipboard.writeText(code);
+		void vscode.window.showInformationMessage('Test script copied to clipboard.');
+	}
+
+	private async handleSaveTestScript(filename: string, code: string): Promise<void> {
+		const trimmed = code?.trim();
+		if (!trimmed) {
+			return;
+		}
+
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		if (!folder) {
+			void vscode.window.showErrorMessage('Open a folder workspace to save the test script.');
+			return;
+		}
+
+		const safeName = sanitizeTestFilename(filename || 'generated.test.js');
+		const testsDir = vscode.Uri.joinPath(folder.uri, 'tests');
+
+		try {
+			try {
+				await vscode.workspace.fs.stat(testsDir);
+			} catch {
+				await vscode.workspace.fs.createDirectory(testsDir);
+			}
+
+			const target = vscode.Uri.joinPath(testsDir, safeName);
+			await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(trimmed));
+
+			void vscode.window.showInformationMessage(`Saved test script to ${target.fsPath}`);
+
+			const doc = await vscode.workspace.openTextDocument(target);
+			await vscode.window.showTextDocument(doc);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			void vscode.window.showErrorMessage(`Could not save test script: ${msg}`);
 		}
 	}
 
@@ -119,11 +191,12 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
-	private postResult(generated: GeneratedTestCases): void {
+	private postResult(generated: IntelliGenerationResult): void {
 		void this.view?.webview.postMessage({
 			command: 'result',
 			testCases: generated.testCases,
-			recommendedTestingFramework: generated.recommendedTestingFramework
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			testScript: null
 		});
 	}
 

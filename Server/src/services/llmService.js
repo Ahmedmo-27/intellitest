@@ -2,7 +2,7 @@
  * LLM adapter: Ollama (local) or OpenAI-compatible HTTP API. Configured via env.
  */
 import axios from "axios";
-import { logger } from "../utils/logger.js";
+import { logTerminalSection, logger } from "../utils/logger.js";
 
 function getConfig() {
   const provider = (process.env.LLM_PROVIDER || "ollama").toLowerCase();
@@ -21,11 +21,16 @@ function getConfig() {
  * @returns {Promise<string>} raw model text
  */
 export async function complete(prompt) {
+  logTerminalSection("LLM input (full prompt sent to the model)", prompt);
   const cfg = getConfig();
+  let text;
   if (cfg.provider === "api") {
-    return completeOpenAICompatible(cfg, prompt);
+    text = await completeOpenAICompatible(cfg, prompt);
+  } else {
+    text = await completeOllama(cfg, prompt);
   }
-  return completeOllama(cfg, prompt);
+  logTerminalSection("LLM output (raw model text)", text);
+  return text;
 }
 
 async function completeOllama(cfg, prompt) {
@@ -68,7 +73,16 @@ async function completeOpenAICompatible(cfg, prompt) {
     return typeof choice === "string" ? choice : JSON.stringify(choice ?? "");
   } catch (e) {
     const status = e.response?.status;
-    logger.error("api_llm_request_failed", { message: e.message, status });
-    throw new Error(`LLM API request failed: ${e.message}`);
+    const body = e.response?.data;
+    let apiHint = "";
+    if (body && typeof body === "object") {
+      const errObj = body.error;
+      if (typeof errObj === "string") apiHint = errObj;
+      else if (errObj && typeof errObj.message === "string") apiHint = errObj.message;
+      else if (typeof body.message === "string") apiHint = body.message;
+    }
+    const detail = apiHint || e.message;
+    logger.error("api_llm_request_failed", { message: detail, status });
+    throw new Error(apiHint ? `LLM API request failed (${status ?? "?"}): ${apiHint}` : `LLM API request failed: ${e.message}`);
   }
 }

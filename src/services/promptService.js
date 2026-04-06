@@ -6,7 +6,7 @@
 function projectContextBlock(map) {
   return [
     "Project context (structured):",
-    `- type: ${map.type}`,
+    `- type (web domain / product category, e.g. e-commerce, LMS): ${map.type}`,
     `- language: ${map.language}`,
     `- framework: ${map.framework}`,
     `- modules: ${JSON.stringify(map.modules ?? [])}`,

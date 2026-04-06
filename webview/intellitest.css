@@ -199,3 +199,54 @@ label {
 	text-align: center;
 	color: var(--vscode-descriptionForeground);
 }
+
+.script-section {
+	margin-top: 8px;
+}
+
+.script-meta {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	margin-bottom: 6px;
+	line-height: 1.4;
+}
+
+.script-actions {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.btn-secondary {
+	padding: 5px 10px;
+	border: 1px solid var(--vscode-button-secondaryForeground, var(--vscode-widget-border));
+	border-radius: 2px;
+	background-color: var(--vscode-button-secondaryBackground, var(--vscode-editor-background));
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	font-family: inherit;
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+	min-height: 26px;
+}
+
+.btn-secondary:hover {
+	opacity: 0.9;
+}
+
+.script-pre {
+	margin: 0;
+	padding: 10px;
+	max-height: 280px;
+	overflow: auto;
+	border: 1px solid var(--vscode-widget-border);
+	border-radius: 2px;
+	background-color: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+	color: var(--vscode-editor-foreground);
+	font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+	font-size: 11px;
+	line-height: 1.45;
+	white-space: pre;
+	word-break: normal;
+	overflow-wrap: normal;
+}

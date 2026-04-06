@@ -14,6 +14,16 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "IntelliTest",
+      "properties": {
+        "intellitest.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Base URL of the IntelliTest backend (no trailing slash). Must match Server/.env PORT — e.g. http://localhost:3001 when PORT=3001."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

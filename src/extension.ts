@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { IntelliTestViewProvider } from './providers/IntelliTestViewProvider';
+import { detectRecommendedTestingFramework } from './services/testingFramework';
 import { detectTechStack } from './services/techStack';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -12,8 +13,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 	let detectedStack = 'Unknown Tech Stack';
 
+	let recommendedTestingFramework = 'Not detected yet';
 	if (workspaceFolder) {
 		detectedStack = await detectTechStack(workspaceFolder.uri);
+		recommendedTestingFramework = detectRecommendedTestingFramework(workspaceFolder.uri.fsPath);
 		console.log(`Detected tech stack: ${detectedStack}`);
 		void vscode.window.showInformationMessage(`IntelliTest detected: ${detectedStack}`);
 	}
@@ -21,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(
 			IntelliTestViewProvider.viewType,
-			new IntelliTestViewProvider(context.extensionUri, detectedStack)
+			new IntelliTestViewProvider(context.extensionUri, detectedStack, recommendedTestingFramework)
 		)
 	);
 }

@@ -25,6 +25,16 @@ const ignoredFolders = new Set([
 	'logs'
 ]);
 
+export function listProjectRelativePaths(
+	workspaceRootPath: string | undefined,
+	maxFiles = 500
+): string[] {
+	if (!workspaceRootPath || !fs.existsSync(workspaceRootPath)) {
+		return [];
+	}
+	return collectProjectFileNames(workspaceRootPath).slice(0, maxFiles);
+}
+
 function collectProjectFileNames(rootPath: string): string[] {
 	const fileNames: string[] = [];
 
