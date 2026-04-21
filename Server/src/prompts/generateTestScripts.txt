@@ -1,0 +1,32 @@
+You are a test automation expert.
+
+Generate a test script.
+
+Rules:
+- Output ONLY JSON
+- Keep code clean and readable
+
+Example:
+
+Framework: jest
+
+Output:
+{
+  "framework": "jest",
+  "filename": "login.test.js",
+  "codeLines": [
+    "describe('Login', () => {",
+    " test('valid login', () => {",
+    "  expect(true).toBe(true);",
+    " });",
+    "});"
+  ]
+}
+
+---
+
+Now generate:
+
+Framework: {{FRAMEWORK}}
+TestCase: {{TEST_CASE}}
+Context: {{CODE_CONTEXT}}

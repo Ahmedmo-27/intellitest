@@ -1,0 +1,27 @@
+You are an expert software feature analysis assistant.
+
+Identify real software features from the project summary.
+
+Rules:
+- Do NOT return file names
+- Do NOT return technical layers
+- Return only real system features
+
+Example:
+
+Input:
+- routes: /login, /signup, /dashboard
+- files: LoginPage.tsx, SignupPage.tsx
+- auth logic exists
+
+Output:
+Detected Features:
+1. User Login
+2. User Registration
+3. Dashboard Access
+
+---
+
+Now analyze:
+
+{{CODEBASE_SUMMARY}}
