@@ -46,6 +46,10 @@ Rules:
 - Keep "description" as a human-readable scenario summary. Do NOT put tags inside description.
 - Keep "preconditions" concrete (e.g. account exists, user is logged out, product in stock).
 - If priority files were specified, emphasize test cases that exercise those files' functions and classes first. Then add broader coverage.
+- **IMPORTANT**: Use function signatures and descriptions in the code context:
+  - Function signature shows inputs (parameter types) and outputs (return type), e.g., \`validatePassword(password: string, minLength: number): boolean\` means it takes two inputs and returns true/false.
+  - If a function has a description, use it to understand the intended behavior and generate tests that verify that behavior.
+  - Test "happy path" (valid inputs, expected output) and "edge cases" (invalid inputs, boundary conditions, errors).
 - Order the array so critical items appear first.
 
 Example shape (structure only):

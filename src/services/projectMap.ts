@@ -58,7 +58,12 @@ function isFilePriority(filePath: string, priorityFileNames: Set<string>): boole
 }
 
 function summarizeCodeInsightsForAi(
-	files: Array<{ filePath: string; functions: string[]; classes: Array<{ name: string }>; variables: string[] }>,
+	files: Array<{
+		filePath: string;
+		functions: Array<{ name: string; signature: string; description?: string }>;
+		classes: Array<{ name: string }>;
+		variables: string[];
+	}>,
 	priorityFileNames: Set<string> = new Set()
 ): string[] {
 	// Partition files: priority files first, then others
@@ -66,8 +71,13 @@ function summarizeCodeInsightsForAi(
 	const otherFiles = files.filter(f => !isFilePriority(f.filePath, priorityFileNames));
 	const sortedFiles = [...priorityFiles, ...otherFiles].slice(0, MAX_INSIGHT_FILES_FOR_AI);
 
-	return sortedFiles.map((file, idx) => {
-		const fnList = file.functions.slice(0, MAX_FUNCTIONS_PER_FILE_FOR_AI).join(', ');
+	return sortedFiles.map((file) => {
+		// Format functions with signature + optional description
+		const fnList = file.functions
+			.slice(0, MAX_FUNCTIONS_PER_FILE_FOR_AI)
+			.map(fn => `${fn.name}${fn.signature}${fn.description ? ` - ${fn.description}` : ''}`)
+			.join('; ');
+
 		const classList = file.classes
 			.slice(0, MAX_CLASSES_PER_FILE_FOR_AI)
 			.map(c => c.name)

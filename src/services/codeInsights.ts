@@ -40,23 +40,65 @@ function getBindingNames(bindingName: ts.BindingName): string[] {
 	return names;
 }
 
+/**
+ * Extract JSDoc comment summary (first line) from a node's leading trivia.
+ */
+function getJSDocDescription(node: ts.Node): string | undefined {
+	const jsDocTags = ts.getJSDocTags(node);
+	if (jsDocTags.length > 0) {
+		// Look for @summary or use first comment text
+		for (const tag of jsDocTags) {
+			if (tag.tagName.text === 'summary' && tag.comment) {
+				return typeof tag.comment === 'string' ? tag.comment.trim() : undefined;
+			}
+		}
+	}
+
+	// Try to extract from JSDoc block comment
+	const fullText = node.getFullText?.() || '';
+	const jsdocMatch = fullText.match(/\/\*\*\s*\n\s*\*\s*(.+?)\s*\n\s*\*\//);
+	if (jsdocMatch && jsdocMatch[1]) {
+		return jsdocMatch[1].trim();
+	}
+
+	return undefined;
+}
+
+/**
+ * Build full function signature including parameter types and return type.
+ */
+function buildFunctionSignature(node: ts.FunctionDeclaration, sourceFile: ts.SourceFile): string {
+	const params = node.parameters
+		.map(parameter => {
+			const name = ts.isIdentifier(parameter.name) ? parameter.name.text : 'param';
+			const typeStr = parameter.type ? sourceFile.text.substring(parameter.type.pos, parameter.type.end) : '';
+			return typeStr ? `${name}: ${typeStr}` : name;
+		})
+		.join(', ');
+
+	const returnType = node.type
+		? sourceFile.text.substring(node.type.pos, node.type.end)
+		: '';
+	const returnStr = returnType ? `: ${returnType}` : '';
+
+	return `(${params})${returnStr}`;
+}
+
 function extractFromSourceFile(sourceFile: ts.SourceFile): Omit<CodeInsightFile, 'filePath'> {
-	const functions: string[] = [];
+	const functions: Array<{ name: string; signature: string; description?: string }> = [];
 	const variables: string[] = [];
 	const classes: CodeInsightClass[] = [];
 	const imports: string[] = [];
 
 	for (const node of sourceFile.statements) {
 		if (ts.isFunctionDeclaration(node) && node.name) {
-			const params = node.parameters
-				.map(parameter => {
-					if (ts.isIdentifier(parameter.name)) {
-						return parameter.name.text;
-					}
-					return 'param';
-				})
-				.join(', ');
-			functions.push(`${node.name.text}(${params})`);
+			const signature = buildFunctionSignature(node, sourceFile);
+			const description = getJSDocDescription(node);
+			functions.push({
+				name: node.name.text,
+				signature,
+				description
+			});
 			continue;
 		}
 

@@ -97,74 +97,213 @@ Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webv
 
 ## Codebase Content Reading Feature
 
-IntelliTest includes a **static code analysis engine** that extracts code symbols from your codebase and uses them to generate highly relevant test cases.
+IntelliTest includes a **dual-layer code analysis engine** that combines **syntax extraction** (what code exists) with **semantic extraction** (what code means).
+
+### Two-Layer Analysis
+
+**Layer 1: Syntax Layer** (Structure)
+- Scans JS/TS files in your project workspace (respecting `.gitignore` and common ignore patterns)
+- Uses TypeScript Compiler API to parse AST and extract:
+  - Function names and parameters
+  - Class names and methods
+  - Variable names and exports
+  - Import statements
+
+**Layer 2: Semantic Layer** (Meaning)
+- Extracts from AST to understand *intent*:
+  - **TypeScript type signatures**: Shows parameter types, return types (e.g., `(password: string): boolean`)
+  - **JSDoc descriptions**: Captures function purpose from comments (e.g., "Validates password strength")
+  - This layer enables AI to understand *what the code should do*, not just *what exists*
 
 ### What It Does
 
-- **Scans JS/TS files** in your project workspace (respecting `.gitignore` and common ignore patterns).
-- **Extracts code symbols** using TypeScript Compiler API:
-  - Functions (with parameter names)
-  - Classes (with method lists)
-  - Variables (including exports)
-  - Import statements
-- **Displays Code Insights in sidebar** with collapsible file groups, per-file category shading, and pagination (8 files/page).
-- **Prioritizes mentioned files**: When you write "passwordModal.js" in your prompt, symbols from that file are boosted to the top of the AI context.
+- Combines structure + meaning into rich code context for AI
+- **Displays Code Insights in sidebar** with collapsible file groups, category shading, and pagination (8 files/page)
+- Shows function signatures and descriptions inline in the Code Insights panel
+- **Prioritizes mentioned files**: When you write "passwordModal.js" in your prompt, symbols from that file are boosted to the top with full semantic information
 
-### How It Works (Simple Flow)
+### How It Works (Enhanced Flow with Semantic Layer)
 
 ```
 User writes prompt (e.g., "Test passwordModal.js validation")
         ↓
-Code scanner finds all JS/TS files in workspace
+┌─ SYNTAX LAYER (Structure) ─────────────────┐
+│ Code scanner finds all JS/TS files         │
+│ AST parser extracts structure:              │
+│ - Function names, parameters                │
+│ - Class names, methods                      │
+│ - Variables, imports                        │
+└────────────────────────────────────────────┘
         ↓
-AST parser extracts functions, classes, variables, imports
+┌─ SEMANTIC LAYER (Meaning) ──────────────────┐
+│ Extract from AST:                           │
+│ - TypeScript type signatures (inputs/outputs)│
+│ - JSDoc descriptions (purpose/intent)       │
+│ Example: validatePassword(password: string, │
+│   minLength: number): boolean               │
+│   "Validates password strength"             │
+└────────────────────────────────────────────┘
         ↓
 ⭐ File priority detection: "passwordModal.js" detected → move to top
         ↓
 Code symbols shown in sidebar Code Insights panel
+(includes signatures + descriptions)
         ↓
-Prioritized context sent to AI backend:
+Prioritized semantic context sent to AI:
   - Project type, tech stack, framework
   - Routes and modules
-  - Code symbols (prioritized files first)
+  - Code symbols with types & purpose (prioritized first)
   - User prompt
         ↓
-AI generates focused test cases for priority files
+AI interprets meaning:
+  • Type signature → what inputs/outputs are valid
+  • Description → what should it do
+  • Generate happy-path + edge-case tests
+        ↓
+AI generates focused, semantically-aware test cases
 ```
 
-### What Gets Sent to AI (Both File Names + Code Context)
+### What Gets Sent to AI (Syntax + Semantic Context)
 
 The AI receives a structured project map containing:
 
 | Component | Example | Purpose |
 |-----------|---------|----------|
 | **File Names** | `src/modals/passwordModal.js`, `src/services/auth.ts` | Understand project organization |
-| **Code Symbols** | Functions: `validatePassword()`, `resetForm()`; Classes: `PasswordValidator`; Variables: `MIN_LENGTH`, `REGEX_PATTERN` | Generate test cases that exercise actual code paths |
-| **Priority Files** | `["passwordModal.js"]` (detected from prompt) | Focus AI generation on user-specified files |
+| **Syntax Layer** | Functions: `validatePassword`, `resetForm`; Classes: `PasswordValidator`; Variables: `MIN_LENGTH` | Basic code structure |
+| **Semantic Layer** | `validatePassword(password: string, minLength: number): boolean - "Validates password strength"` | **AI understands inputs/outputs (types) and purpose (description)** |
+| **Priority Files** | `["passwordModal.js"]` (detected from prompt) | Focus AI generation on user-specified files with full semantic context |
 | **Framework/Language** | React, Vue, Express, JavaScript, TypeScript | Use appropriate testing patterns |
 | **Project Structure** | Routes, modules, API endpoints | Understand application architecture |
 
-### Example Code Context Sent to AI
+**Semantic Layer Impact:** Type signatures (e.g., `: boolean`, `: Promise<AuthToken>`) + descriptions (e.g., "Validates strength") allow AI to generate tests that match actual code behavior.
 
+### Example Code Context Sent to AI (With Semantic Layer)
+
+**Before (Syntax Layer Only):**
 ```
 ⭐ src/modals/passwordModal.js -> functions: validatePassword, resetForm, handleSubmit | classes: PasswordValidator | variables: MIN_LENGTH, REGEX_PATTERN
-src/services/authService.js -> functions: login, logout, refreshToken | classes: AuthManager
-src/utils/validators.js -> functions: isEmail, isStrongPassword, sanitizeInput | variables: EMAIL_REGEX, PASSWORD_MIN_LENGTH
 ```
 
-The **⭐** symbol marks priority files so the AI knows to generate test cases focusing on those files first.
+**After (Syntax + Semantic Layer):**
+```
+⭐ src/modals/passwordModal.js -> 
+  functions: 
+    validatePassword(password: string, minLength: number): boolean - Validates password strength against security rules;
+    resetForm(formRef: HTMLFormElement): void - Clears all form fields and resets validation state;
+    handleSubmit(event: SubmitEvent, callback: Function): Promise<void>
+  classes: PasswordValidator
+  variables: MIN_LENGTH, REGEX_PATTERN
+
+src/services/authService.js -> 
+  functions:
+    login(username: string, password: string): Promise<AuthToken> - Authenticates user credentials;
+    logout(): void - Clears session and user state
+  classes: AuthManager
+```
+
+**How AI Uses This:**
+- `validatePassword(password: string, minLength: number): boolean` tells AI: *takes 2 inputs (text + number), returns true/false*
+- `Validates password strength` tells AI: *purpose is to check strength, so test weak passwords, edge cases, special chars*
+- Result: AI generates tests like "Test with password under min length", "Test with special characters", etc.
+
+The **⭐** symbol marks priority files; **type signatures** reveal inputs/outputs; **descriptions** reveal intent/purpose.
+
+## Where Syntax & Semantic Layers Happen
+
+**In One Picture:**
+```
+File Read
+  ↓
+Parse into AST (Abstract Syntax Tree)
+  ↓
+├─ SYNTAX LAYER: Extract structure
+│  File: src/services/codeInsights.ts (lines 82-130)
+│  Function: extractFromSourceFile()
+│  Extracts: function names, parameters, classes, variables
+│
+└─ SEMANTIC LAYER: Add meaning
+   File: src/services/codeInsights.ts (lines 42-80)
+   Functions: getJSDocDescription() + buildFunctionSignature()
+   Extracts: JSDoc comments + TypeScript types
+  ↓
+Combined Result:
+  validatePassword(password: string, minLength: number): boolean
+  - "Validates password strength"
+  ↓
+Sent to AI for smarter test generation
+```
+
+### File-by-File Breakdown
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| **codeInsights.ts** | 42-65 | `getJSDocDescription()` - reads `/** ... */` comments |
+| **codeInsights.ts** | 67-80 | `buildFunctionSignature()` - reads TypeScript types |
+| **codeInsights.ts** | 82-130 | `extractFromSourceFile()` - walks AST, combines both layers |
+| **projectMap.ts** | 60-100 | `summarizeCodeInsightsForAi()` - formats for AI |
+| **promptService.js** | Backend | Sends formatted code context to Groq LLM |
+
+### What Gets Extracted (Simple)
+
+**SYNTAX LAYER (What code exists):**
+- Function name: `validatePassword`
+- Parameters: `password`, `minLength`
+- Class name: `PasswordValidator`
+
+**SEMANTIC LAYER (What it means):**
+- Parameter types: `string`, `number`
+- Return type: `boolean`
+- Purpose: `"Validates password strength"`
+
+**Result for AI:**
+```
+validatePassword(password: string, minLength: number): boolean - Validates password strength
+```
+
+---
+
+
+
+**JSDoc** is structured comments that explain what code does.
+
+### Quick Explanation
+
+```javascript
+/**
+ * One-line description
+ * @param {type} name - what it is
+ * @returns {type} what it returns
+ */
+```
+
+**Real example:**
+```javascript
+/**
+ * Validates password strength.
+ * @param {string} password - password to check
+ * @param {number} minLength - minimum length
+ * @returns {boolean} true if valid
+ */
+function validatePassword(password, minLength) { }
+```
+
+### Impact: With vs Without
+
+| Without JSDoc | With JSDoc |
+|---|---|
+| `validatePassword(password: string, number): boolean` | `validatePassword(...): boolean - Validates strength` |
+| AI generates generic tests | AI generates: weak passwords, edge cases, special chars |
 
 ### Code Insights Panel
 
-- Access via "Code Insights" toggle in the IntelliTest sidebar
-- Shows all discovered code symbols grouped by file
-- Symbols are categorized: Functions (blue), Variables (green), Classes (purple)
-- Click any function name to auto-populate it in your prompt
-- Pagination: 8 files per page with numbered navigation buttons
+- Toggle "Code Insights" → see all functions + signatures + descriptions
+- Click function → auto-add to prompt
+- Browse 8 files/page with pagination
+
+---
 
 ## AI Integration
-
-- Uses Groq API for LLM inference.
 - Requires `GROQ_API_KEY`.
 - Backend builds system and user prompts, requests structured JSON, and normalizes responses.
 
