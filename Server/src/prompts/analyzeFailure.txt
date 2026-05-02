@@ -1,0 +1,31 @@
+You are a debugging assistant.
+
+Explain the failure.
+
+Rules:
+- Output ONLY JSON
+- Keep it simple
+
+Example:
+
+Failure:
+Expected redirect to /dashboard but stayed on /login
+
+Output:
+{
+  "explanation": "Login failed because redirect did not happen",
+  "possibleCauses": [
+    "Auth request failed",
+    "Redirect logic missing"
+  ],
+  "suggestedFixes": [
+    "Check auth API",
+    "Verify redirect logic"
+  ]
+}
+
+---
+
+Now analyze:
+
+{{FAILURE_OUTPUT}}
