@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { generateViaBackend } from '../services/backendClient';
+import { getCodeInsights } from '../services/codeInsights';
 import { exportTestCasesToExcel } from '../services/excel';
 import { detectRecommendedTestingFramework } from '../services/testingFramework';
 import type { IntelliGenerationResult } from '../types/testCases';
@@ -65,6 +66,10 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 						detectedStack: this.detectedStack,
 						recommendedTestingFramework: this.recommendedTestingFramework
 					});
+					void this.postCodeInsights();
+					break;
+				case 'refreshCodeInsights':
+					void this.postCodeInsights(true);
 					break;
 			}
 		});
@@ -205,5 +210,24 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			command: 'exportStatus',
 			isExporting
 		});
+	}
+
+	private async postCodeInsights(forceRefresh = false): Promise<void> {
+		try {
+			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			const insights = await getCodeInsights(workspaceRootPath, forceRefresh);
+
+			void this.view?.webview.postMessage({
+				command: 'codeInsights',
+				files: insights.files,
+				totalAnalyzedFiles: insights.totalAnalyzedFiles
+			});
+		} catch {
+			void this.view?.webview.postMessage({
+				command: 'codeInsights',
+				files: [],
+				totalAnalyzedFiles: 0
+			});
+		}
 	}
 }
