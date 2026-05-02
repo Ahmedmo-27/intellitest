@@ -61,6 +61,20 @@
             </div>
         </div>
 
+        <div class="output-section insights-shell">
+            <div class="insights-header">
+                <button id="insightsVisibilityButton" class="insights-visibility" type="button" aria-expanded="true">
+                    <span id="insightsVisibilityArrow" class="insights-visibility-arrow" aria-hidden="true">▾</span>
+                    <span>Code Insights</span>
+                </button>
+                <button id="refreshInsightsButton" class="btn-secondary" type="button">Refresh</button>
+            </div>
+            <div id="insightsPanel" class="insights-panel" style="display: block;">
+                <div id="insightsEmpty" class="insights-empty">Code insights not available.</div>
+                <div id="insightsList" class="insights-list" style="display: none;"></div>
+            </div>
+        </div>
+
         <!-- Suggested test script section (disabled for now — re-enable when bringing back /generate-tests)
         <div class="output-section script-section" id="scriptSection" style="display: none;">
             <div class="output-label">Suggested test script</div>

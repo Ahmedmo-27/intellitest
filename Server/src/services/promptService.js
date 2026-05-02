@@ -15,27 +15,41 @@ function projectContextBlock(map) {
 }
 
 /**
+ * Build a priority context block if priority files are specified.
+ */
+function priorityFilesBlock(map) {
+  if (!Array.isArray(map.priorityFiles) || map.priorityFiles.length === 0) {
+    return "";
+  }
+  return `\nPRIORITY FILES (focus test cases here first):\nThe tester specifically mentioned these files as focus areas. Generate test cases that exercise their functions, classes, and variables:\n${map.priorityFiles.map(f => `- ${f}`).join("\n")}`;
+}
+
+/**
  * High-level manual test cases with optional priority and tags (bonus).
  */
 export function generateTestCasesPrompt(projectMap) {
   const ctx = projectContextBlock(projectMap);
+  const priorityCtx = priorityFilesBlock(projectMap);
   const testerAsk =
     projectMap.prompt && String(projectMap.prompt).trim()
       ? `\n\nTester request (highest priority — honor explicit scope limits; otherwise broaden sensibly):\n${String(projectMap.prompt).trim()}\n`
       : "";
-  return `You are a senior QA engineer. ${ctx}${testerAsk}
+  return `You are a senior QA engineer. ${ctx}${priorityCtx}${testerAsk}
 
 Task: Propose manual test cases that cover critical user flows and edge cases for this system.
 
 Rules:
 - Output ONLY valid JSON (no markdown, no commentary).
-- Return a JSON array of objects. Each object MUST have: "id" (e.g. TC-001), "name", "steps" (array of strings), "expected" (string).
+- Return a JSON array of objects. Each object MUST have: "id" (e.g. TC-001), "name", "description" (string), "preconditions" (string), "steps" (array of strings), "expected" (string).
 - Also include "priority" for each: one of "critical", "high", "medium", "low" (critical = main revenue/auth/safety flows).
 - Include "tags": array of short labels drawn from modules/routes/context (e.g. "auth", "cart", "checkout").
+- Keep "description" as a human-readable scenario summary. Do NOT put tags inside description.
+- Keep "preconditions" concrete (e.g. account exists, user is logged out, product in stock).
+- If priority files were specified, emphasize test cases that exercise those files' functions and classes first. Then add broader coverage.
 - Order the array so critical items appear first.
 
 Example shape (structure only):
-[{"id":"TC-001","name":"...","steps":["..."],"expected":"...","priority":"critical","tags":["auth"]}]`;
+[{"id":"TC-001","name":"...","description":"...","preconditions":"...","steps":["..."],"expected":"...","priority":"critical","tags":["auth"]}]`;
 }
 
 /**

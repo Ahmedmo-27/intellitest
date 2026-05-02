@@ -5,6 +5,8 @@ import { buildProjectMap } from './projectMap';
 type ServerTestCase = {
 	id?: string;
 	name?: string;
+	description?: string;
+	preconditions?: unknown;
 	steps?: unknown;
 	expected?: string;
 	priority?: string;
@@ -22,14 +24,24 @@ function stepsToDisplayText(steps: unknown): string {
 	return String(steps ?? '').trim();
 }
 
+function toPreconditionsText(value: unknown): string {
+	if (Array.isArray(value)) {
+		return value.map(v => String(v ?? '').trim()).filter(Boolean).join('; ');
+	}
+	return String(value ?? '').trim();
+}
+
 function mapServerCase(item: ServerTestCase, index: number): TestCaseRow {
 	const tags = Array.isArray(item.tags) ? item.tags.map(String).filter(Boolean) : [];
-	const tagLine = tags.length ? `Tags: ${tags.join(', ')}` : '';
+	const descriptionText = String(item.description ?? '').trim();
+	const preconditionsText = toPreconditionsText(item.preconditions);
+	const fallbackTagLine = tags.length ? `Tags: ${tags.join(', ')}` : '';
+
 	return {
 		testCaseId: String(item.id ?? `TC-${String(index + 1).padStart(3, '0')}`),
 		title: String(item.name ?? 'Unnamed test'),
-		description: tagLine,
-		preconditions: '',
+		description: descriptionText || fallbackTagLine,
+		preconditions: preconditionsText,
 		steps: stepsToDisplayText(item.steps),
 		expectedResult: String(item.expected ?? ''),
 		priority: String(item.priority ?? 'medium')
@@ -84,7 +96,7 @@ export async function generateViaBackend(
 	userPrompt: string
 ): Promise<IntelliGenerationResult> {
 	const root = baseUrl.replace(/\/$/, '');
-	const projectMap = buildProjectMap(workspaceRootPath, detectedStack, userPrompt);
+	const projectMap = await buildProjectMap(workspaceRootPath, detectedStack, userPrompt);
 
 	let data: { testCases?: ServerTestCase[]; error?: string; detail?: string };
 	try {
