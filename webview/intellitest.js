@@ -102,7 +102,13 @@ function renderCodeInsights(files) {
 		const folderLabel = pathSegments.slice(0, -1).join('/');
 
 		const functions = (file.functions || [])
-			.map(fn => `<button type="button" class="insight-item insight-fn" data-function="${escapeHtml(fn)}">${escapeHtml(fn)}</button>`)
+			.map(fn => {
+				// Handle both string (legacy) and object (new semantic layer)
+				const fnName = typeof fn === 'string' ? fn : (fn.name || 'unknown');
+				const fnSignature = typeof fn === 'string' ? '' : (fn.signature || '');
+				const displayText = fnSignature ? `${fnName}${fnSignature}` : fnName;
+				return `<button type="button" class="insight-item insight-fn" data-function="${escapeHtml(fnName)}">${escapeHtml(displayText)}</button>`;
+			})
 			.join('');
 
 		const variables = (file.variables || [])

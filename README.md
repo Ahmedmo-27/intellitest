@@ -180,34 +180,33 @@ The AI receives a structured project map containing:
 
 ### Example Code Context Sent to AI (With Semantic Layer)
 
-**Before (Syntax Layer Only):**
+**UI Display (Code Insights Panel):**
 ```
-⭐ src/modals/passwordModal.js -> functions: validatePassword, resetForm, handleSubmit | classes: PasswordValidator | variables: MIN_LENGTH, REGEX_PATTERN
-```
-
-**After (Syntax + Semantic Layer):**
-```
-⭐ src/modals/passwordModal.js -> 
-  functions: 
-    validatePassword(password: string, minLength: number): boolean - Validates password strength against security rules;
-    resetForm(formRef: HTMLFormElement): void - Clears all form fields and resets validation state;
+⭐ src/modals/passwordModal.js
+  Functions:
+    validatePassword(password: string, minLength: number): boolean
+    resetForm(formRef: HTMLFormElement): void
     handleSubmit(event: SubmitEvent, callback: Function): Promise<void>
-  classes: PasswordValidator
-  variables: MIN_LENGTH, REGEX_PATTERN
-
-src/services/authService.js -> 
-  functions:
-    login(username: string, password: string): Promise<AuthToken> - Authenticates user credentials;
-    logout(): void - Clears session and user state
-  classes: AuthManager
+  Classes: PasswordValidator
+  Variables: MIN_LENGTH, REGEX_PATTERN
 ```
+*(Shows signatures only; descriptions only appear if JSDoc comments exist)*
+
+**What Gets Sent to AI (Behind the scenes):**
+```
+validatePassword(password: string, minLength: number): boolean - Validates password strength
+resetForm(formRef: HTMLFormElement): void - Clears form and resets state
+...
+```
+*(Type signatures + JSDoc descriptions, even if not displayed in UI)*
 
 **How AI Uses This:**
 - `validatePassword(password: string, minLength: number): boolean` tells AI: *takes 2 inputs (text + number), returns true/false*
-- `Validates password strength` tells AI: *purpose is to check strength, so test weak passwords, edge cases, special chars*
+- `"Validates password strength"` tells AI: *purpose is strength validation, so test weak passwords, edge cases, special chars*
 - Result: AI generates tests like "Test with password under min length", "Test with special characters", etc.
 
-The **⭐** symbol marks priority files; **type signatures** reveal inputs/outputs; **descriptions** reveal intent/purpose.
+The **⭐** symbol marks priority files; **type signatures** are always visible in UI; **descriptions** are sent to AI but not displayed in UI (unless JSDoc exists).
+
 
 ## Where Syntax & Semantic Layers Happen
 
@@ -233,6 +232,8 @@ Combined Result:
   ↓
 Sent to AI for smarter test generation
 ```
+
+**Efficient Extraction:** IntelliTest does NOT parse every character. Instead, it walks the AST tree, checking node types (`isFunctionDeclaration`, `isClassDeclaration`, etc.) and extracting only matched symbols with their metadata. A 1000-line file might yield only 5-10 functions—keeping context small and focused.
 
 ### File-by-File Breakdown
 
