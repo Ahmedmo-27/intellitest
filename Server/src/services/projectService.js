@@ -30,11 +30,12 @@ import { unionArrays }    from "../utils/helpers.js";
  * @param {object} projectMap — normalised payload from validateGenerate middleware
  * @returns {Promise<object>} lean project document
  */
-export async function upsertProject(projectId, projectMap) {
+export async function upsertProject(userId, projectId, projectMap) {
   const project = await Project.findOneAndUpdate(
-    { projectId },
+    { userId, projectId },
     {
       $setOnInsert: {
+        userId,
         projectId,
         name: projectMap.name || projectMap.type || "Unnamed Project",
         type: projectMap.type || "unknown",
@@ -60,8 +61,8 @@ export async function upsertProject(projectId, projectMap) {
  * @param {string} projectId
  * @returns {Promise<object|null>}
  */
-export async function loadContext(projectId) {
-  return ProjectContext.findOne({ projectId }).lean();
+export async function loadContext(userId, projectId) {
+  return ProjectContext.findOne({ userId, projectId }).lean();
 }
 
 /**
@@ -79,7 +80,7 @@ export async function loadContext(projectId) {
  * @param {object} projectMap
  * @returns {Promise<object>} updated context as plain object
  */
-export async function mergeContext(projectId, projectMap) {
+export async function mergeContext(userId, projectId, projectMap) {
   const incoming = {
     modules:       projectMap.modules       ?? [],
     routes:        projectMap.routes        ?? [],
@@ -90,7 +91,7 @@ export async function mergeContext(projectId, projectMap) {
   };
 
   // Load current state for union computation (one round-trip before the update)
-  const existing = await ProjectContext.findOne({ projectId }).lean();
+  const existing = await ProjectContext.findOne({ userId, projectId }).lean();
 
   const mergedModules       = unionArrays(existing?.modules,       incoming.modules);
   const mergedRoutes        = unionArrays(existing?.routes,        incoming.routes);
@@ -103,7 +104,7 @@ export async function mergeContext(projectId, projectMap) {
   }
 
   const updated = await ProjectContext.findOneAndUpdate(
-    { projectId },
+    { userId, projectId },
     {
       $set: {
         modules:       mergedModules,
@@ -112,7 +113,7 @@ export async function mergeContext(projectId, projectMap) {
         ...insightUpdates,
       },
       $inc:         { contextVersion: 1 },
-      $setOnInsert: { projectId },
+      $setOnInsert: { userId, projectId },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
@@ -129,8 +130,8 @@ export async function mergeContext(projectId, projectMap) {
  * @param {number} [limit=50]
  * @returns {Promise<object[]>}
  */
-export async function loadMessages(projectId, limit = 50) {
-  const msgs = await Message.find({ projectId })
+export async function loadMessages(userId, projectId, limit = 50) {
+  const msgs = await Message.find({ userId, projectId })
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
@@ -145,8 +146,8 @@ export async function loadMessages(projectId, limit = 50) {
  * @param {string} response — serialised AI output (JSON string)
  * @returns {Promise<object>} saved message as plain object
  */
-export async function saveMessage(projectId, prompt, response) {
-  const msg = await Message.create({ projectId, prompt, response });
+export async function saveMessage(userId, projectId, prompt, response) {
+  const msg = await Message.create({ userId, projectId, prompt, response });
   logger.info("message_saved", { projectId, messageId: String(msg._id) });
   return msg.toObject();
 }
@@ -155,6 +156,7 @@ export async function saveMessage(projectId, prompt, response) {
 
 /**
  * @typedef {object} SaveGenerationOpts
+ * @property {string}   userId
  * @property {string}   projectId
  * @property {string}   prompt
  * @property {string}   [normalizedPrompt]
@@ -176,6 +178,7 @@ export async function saveMessage(projectId, prompt, response) {
  */
 export async function saveGeneration(opts) {
   const {
+    userId,
     projectId,
     prompt,
     normalizedPrompt = "",
@@ -190,7 +193,7 @@ export async function saveGeneration(opts) {
 
   const [generation, metrics] = await Promise.all([
     AIGeneration.create({
-      projectId, prompt, normalizedPrompt, projectMap,
+      userId, projectId, prompt, normalizedPrompt, projectMap,
       response, latencyMs, retryCount, status, isValid, validationErrors,
     }),
     // Metrics written optimistically — _id available after AIGeneration.create
@@ -227,8 +230,8 @@ export async function saveGeneration(opts) {
  * @param {string} projectId
  * @returns {Promise<object[]>}
  */
-export async function loadFeatures(projectId) {
-  return Feature.find({ projectId }).sort({ testScore: -1 }).lean();
+export async function loadFeatures(userId, projectId) {
+  return Feature.find({ userId, projectId }).sort({ testScore: -1 }).lean();
 }
 
 /**
@@ -240,14 +243,14 @@ export async function loadFeatures(projectId) {
  * @param {Array<{ name: string, description?: string, testScore?: number }>} features
  * @returns {Promise<void>}
  */
-export async function upsertFeatures(projectId, features) {
+export async function upsertFeatures(userId, projectId, features) {
   if (!Array.isArray(features) || features.length === 0) return;
 
   const ops = features.map((f) => ({
     updateOne: {
-      filter: { projectId, name: f.name },
+      filter: { userId, projectId, name: f.name },
       update: {
-        $setOnInsert: { projectId, name: f.name, description: f.description ?? "" },
+        $setOnInsert: { userId, projectId, name: f.name, description: f.description ?? "" },
         $inc:         { "metrics.totalTests": 1 },
         $set:         { testScore: Math.min(100, f.testScore ?? 0) },
       },

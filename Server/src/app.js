@@ -9,8 +9,10 @@ import express from "express";
 import cors    from "cors";
 import { server as serverConfig, cors as corsConfig } from "./config.js";
 import inteliteRoutes from "./routes/inteliteRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 import { logger }     from "./utils/logger.js";
 import { rateLimiter } from "./middleware/rateLimiter.js";
+import { authMiddleware } from "./middleware/authMiddleware.js";
 
 // ── CORS ───────────────────────────────────────────────────────────────────────
 
@@ -61,7 +63,8 @@ export function createApp() {
   });
 
   // ── API routes ───────────────────────────────────────────────────────────
-  app.use("/", inteliteRoutes);
+  app.use("/auth", authRoutes);
+  app.use("/", authMiddleware, inteliteRoutes);
 
   // ── 404 ──────────────────────────────────────────────────────────────────
   app.use((_req, res) => {

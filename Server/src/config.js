@@ -79,3 +79,9 @@ export const cors = Object.freeze({
   // Comma-separated list of allowed origins, or "*" for open (dev only)
   allowedOrigins: optionalEnv("CORS_ALLOWED_ORIGINS", "*"),
 });
+
+// ── Auth ───────────────────────────────────────────────────────────────────────
+export const auth = Object.freeze({
+  jwtSecret: optionalEnv("JWT_SECRET", "super-secret-development-key-change-in-prod"),
+  jwtExpiresIn: optionalEnv("JWT_EXPIRES_IN", "7d"),
+});

@@ -9,7 +9,8 @@ const { Schema, model } = mongoose;
 
 const ProjectContextSchema = new Schema(
   {
-    projectId: { type: String, required: true, unique: true, index: true },
+    userId:    { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    projectId: { type: String, required: true, index: true },
 
     // Aggregated structural knowledge from projectMap payloads
     modules:       [String],
@@ -24,5 +25,7 @@ const ProjectContextSchema = new Schema(
   },
   { timestamps: true }
 );
+
+ProjectContextSchema.index({ userId: 1, projectId: 1 }, { unique: true });
 
 export const ProjectContext = model("ProjectContext", ProjectContextSchema);

@@ -9,7 +9,8 @@ const { Schema, model } = mongoose;
 
 const ProjectSchema = new Schema(
   {
-    projectId: { type: String, required: true, unique: true, index: true },
+    userId:    { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    projectId: { type: String, required: true, index: true },
     name:      { type: String, required: true, trim: true },
     type:      { type: String, default: "unknown" },         // e.g. "web", "api", "cli"
     techStack: {
@@ -20,5 +21,7 @@ const ProjectSchema = new Schema(
   },
   { timestamps: true }
 );
+
+ProjectSchema.index({ userId: 1, projectId: 1 }, { unique: true });
 
 export const Project = model("Project", ProjectSchema);
