@@ -9,6 +9,7 @@ const { Schema, model } = mongoose;
 
 const MessageSchema = new Schema(
   {
+    userId:   { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     projectId: { type: String, required: true, index: true },
     prompt:    { type: String, required: true },
     response:  { type: String, required: true },
@@ -20,6 +21,6 @@ const MessageSchema = new Schema(
 );
 
 // Compound index so we can efficiently page chat history for a project
-MessageSchema.index({ projectId: 1, createdAt: -1 });
+MessageSchema.index({ userId: 1, projectId: 1, createdAt: -1 });
 
 export const Message = model("Message", MessageSchema);

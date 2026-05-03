@@ -9,6 +9,7 @@ const { Schema, model } = mongoose;
 
 const AIGenerationSchema = new Schema(
   {
+    userId:           { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     projectId:        { type: String, required: true, index: true },
     prompt:           { type: String, required: true },
     normalizedPrompt: { type: String, default: "" },
@@ -26,5 +27,7 @@ const AIGenerationSchema = new Schema(
   },
   { timestamps: true }
 );
+
+AIGenerationSchema.index({ userId: 1, projectId: 1, createdAt: -1 });
 
 export const AIGeneration = model("AIGeneration", AIGenerationSchema);

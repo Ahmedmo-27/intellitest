@@ -128,12 +128,19 @@ function stepTypeCheck(parsed, typeExpectations) {
  * @returns {{ ok: boolean, reason?: string }}
  */
 function stepBusinessLogic(parsed) {
-  if (!Array.isArray(parsed?.testCases)) return { ok: true }; // not applicable
+  let testCases = null;
+  if (Array.isArray(parsed)) {
+    testCases = parsed;
+  } else if (Array.isArray(parsed?.testCases)) {
+    testCases = parsed.testCases;
+  } else {
+    return { ok: true }; // not applicable
+  }
 
-  const REQUIRED_TC_FIELDS = ["id", "name", "steps", "expected"];
+  const REQUIRED_TC_FIELDS = ["id", "name", "steps", "expected", "comments"];
 
-  for (let i = 0; i < parsed.testCases.length; i++) {
-    const tc = parsed.testCases[i];
+  for (let i = 0; i < testCases.length; i++) {
+    const tc = testCases[i];
     if (!tc || typeof tc !== "object") {
       return { ok: false, reason: `testCases[${i}] is not an object.` };
     }
