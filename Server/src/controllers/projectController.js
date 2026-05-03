@@ -33,10 +33,11 @@ export async function initProject(req, res) {
   }
 
   try {
+    const userId = req.userId || req.user?.id;
     const [messages, context, features] = await Promise.all([
-      loadMessages(projectId, 50),
-      loadContext(projectId),
-      loadFeatures(projectId),
+      loadMessages(userId, projectId, 50),
+      loadContext(userId, projectId),
+      loadFeatures(userId, projectId),
     ]);
 
     logger.info("project_init", {
