@@ -1,43 +1,33 @@
 /**
  * Sliding-window rate limiter (in-memory, no external deps).
  *
- * Each "window" tracks an array of timestamps. On every request we:
- *   1. Prune timestamps older than WINDOW_MS.
- *   2. If remaining count === 0 → 429.
- *   3. Otherwise record the timestamp and continue.
+ * Algorithm:
+ *   Per key, maintain an array of request timestamps.
+ *   On each request:
+ *     1. Prune timestamps older than windowMs.
+ *     2. If count >= max → 429.
+ *     3. Otherwise record timestamp and continue.
  *
- * Configured via environment variables:
- *   RATE_LIMIT_WINDOW_MS   — window size in ms (default 60 000 → 1 min)
- *   RATE_LIMIT_MAX         — max requests per window  (default 20)
+ * Configuration is read from config.js (RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX).
+ * For multi-process deployments swap the in-process Map for a Redis store.
  *
- * Key derived from: X-Forwarded-For header → socket remote address → "unknown".
- * For multi-process deployments replace the Map with Redis.
+ * Key derivation:
+ *   X-Forwarded-For (first IP) → socket.remoteAddress → "unknown"
  */
 
+import { rateLimit as cfg } from "../config.js";
 import { logger } from "../utils/logger.js";
-
-const WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000;
-const MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX) || 20;
 
 /** @type {Map<string, number[]>} */
 const store = new Map();
 
-/**
- * Prune timestamps outside the current sliding window.
- * @param {number[]} timestamps
- * @param {number} now
- * @returns {number[]}
- */
-function prune(timestamps, now) {
-  const cutoff = now - WINDOW_MS;
+// ── helpers ────────────────────────────────────────────────────────────────────
+
+function prune(timestamps, now, windowMs) {
+  const cutoff = now - windowMs;
   return timestamps.filter((t) => t > cutoff);
 }
 
-/**
- * Derive a stable key for the request.
- * @param {import("express").Request} req
- * @returns {string}
- */
 function getKey(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
@@ -46,53 +36,58 @@ function getKey(req) {
   return req.socket?.remoteAddress || "unknown";
 }
 
+/** Periodic housekeeping — removes stale keys to prevent memory leaks. */
+function maybePurge(now, windowMs) {
+  if (Math.random() > 0.01) return;
+  const cutoff = now - windowMs;
+  for (const [k, ts] of store.entries()) {
+    if (ts.every((t) => t <= cutoff)) store.delete(k);
+  }
+}
+
+// ── factory ───────────────────────────────────────────────────────────────────
+
 /**
- * Rate-limiter middleware factory.
+ * Create a rate-limiter middleware instance.
+ *
  * @param {{ windowMs?: number, max?: number }} [options]
  * @returns {import("express").RequestHandler}
  */
-export function createRateLimiter({ windowMs = WINDOW_MS, max = MAX_REQUESTS } = {}) {
-  return function rateLimiter(req, res, next) {
+export function createRateLimiter({ windowMs = cfg.windowMs, max = cfg.max } = {}) {
+  return function rateLimiterMiddleware(req, res, next) {
     const key = getKey(req);
     const now = Date.now();
 
-    const raw = store.get(key) ?? [];
-    const timestamps = prune(raw, now);
+    const pruned    = prune(store.get(key) ?? [], now, windowMs);
+    const remaining = max - pruned.length;
 
-    const remaining = max - timestamps.length;
-
-    // Always set informational headers
-    res.setHeader("X-RateLimit-Limit", max);
+    // Informational headers (RFC 6585 compatible)
+    res.setHeader("X-RateLimit-Limit",     max);
     res.setHeader("X-RateLimit-Remaining", Math.max(0, remaining - 1));
     res.setHeader("X-RateLimit-Window-Ms", windowMs);
 
     if (remaining <= 0) {
-      const oldest = timestamps[0];
+      const oldest  = pruned[0];
       const resetAt = new Date(oldest + windowMs).toISOString();
       res.setHeader("Retry-After", Math.ceil((oldest + windowMs - now) / 1000));
-      logger.warn("rate_limit_exceeded", { key, count: timestamps.length, max });
+
+      logger.warn("rate_limit_exceeded", { key, count: pruned.length, max });
+
       return res.status(429).json({
-        source: "backend",
-        type: "RateLimitExceeded",
-        message: `Too many requests. You are allowed ${max} requests per ${windowMs / 1000}s window.`,
+        source:     "backend",
+        type:       "RateLimitExceeded",
+        message:    `Too many requests — ${max} allowed per ${windowMs / 1000}s window.`,
         retryAfter: resetAt,
       });
     }
 
-    timestamps.push(now);
-    store.set(key, timestamps);
-
-    // Periodic housekeeping — clear keys with empty windows to prevent memory leaks
-    if (Math.random() < 0.01) {
-      const cutoff = now - windowMs;
-      for (const [k, ts] of store.entries()) {
-        if (ts.every((t) => t <= cutoff)) store.delete(k);
-      }
-    }
+    pruned.push(now);
+    store.set(key, pruned);
+    maybePurge(now, windowMs);
 
     next();
   };
 }
 
-/** Default export — ready-to-use instance with env-configured limits. */
+/** Default export — singleton configured from env via config.js. */
 export const rateLimiter = createRateLimiter();

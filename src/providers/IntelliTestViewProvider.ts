@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { generateViaBackend } from '../services/backendClient';
+import { generateViaBackend, generateViaBackendV2, loadProjectSession } from '../services/backendClient';
 import { getCodeInsights } from '../services/codeInsights';
 import { exportTestCasesToExcel } from '../services/excel';
 import { detectRecommendedTestingFramework } from '../services/testingFramework';
@@ -7,6 +7,7 @@ import type { IntelliGenerationResult } from '../types/testCases';
 import { sanitizeTestFilename } from '../utils/testScriptNormalize';
 import type { WebviewMessage } from '../types/messages';
 import { getWebviewHtml } from '../webview/template';
+import { getOrCreateProjectId } from '../utils/projectId';
 
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
@@ -18,20 +19,27 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'intellitestView';
 
 	private readonly extensionUri: vscode.Uri;
+	private readonly extensionContext: vscode.ExtensionContext;
 	private readonly detectedStack: string;
 	/** Test runner(s) inferred from project files (package.json, etc.). */
 	private recommendedTestingFramework: string;
 	private view?: vscode.WebviewView;
 	private latestGenerated: IntelliGenerationResult = EMPTY_GENERATION;
 
+	/** Stable per-workspace identifier — generated once, persisted across restarts. */
+	private readonly projectId: string;
+
 	public constructor(
+		context: vscode.ExtensionContext,
 		extensionUri: vscode.Uri,
 		detectedStack: string,
 		recommendedTestingFramework: string
 	) {
+		this.extensionContext = context;
 		this.extensionUri = extensionUri;
 		this.detectedStack = detectedStack;
 		this.recommendedTestingFramework = recommendedTestingFramework;
+		this.projectId = getOrCreateProjectId(context);
 	}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -61,11 +69,16 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					void this.handleSaveTestScript(message.filename, message.code);
 					break;
 				case 'ready':
+					// 1. Send basic init info
 					void webview.postMessage({
 						command: 'init',
 						detectedStack: this.detectedStack,
-						recommendedTestingFramework: this.recommendedTestingFramework
+						recommendedTestingFramework: this.recommendedTestingFramework,
+						projectId: this.projectId
 					});
+					// 2. Load previous session from server
+					void this.loadAndPostSession();
+					// 3. Load code insights
 					void this.postCodeInsights();
 					break;
 				case 'refreshCodeInsights':
@@ -76,6 +89,42 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 		webview.html = getWebviewHtml(this.extensionUri, webview);
 	}
+
+	// ── Session loading ──────────────────────────────────────────────────────────
+
+	/**
+	 * Fetch previous session from /project/:projectId/init and push it to the webview.
+	 * Fails silently if the backend is not running.
+	 */
+	private async loadAndPostSession(): Promise<void> {
+		const backendUrl =
+			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			return; // No backend configured — skip session loading
+		}
+
+		try {
+			const session = await loadProjectSession(backendUrl, this.projectId);
+			if (!session) {
+				return; // Server unreachable — silent degradation
+			}
+
+			void this.view?.webview.postMessage({
+				command: 'sessionLoaded',
+				projectId: this.projectId,
+				messages: session.messages,
+				context: session.context,
+				features: session.features,
+			});
+		} catch (err) {
+			// Non-critical — log but don't surface to user
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`IntelliTest: could not load previous session — ${msg}`);
+		}
+	}
+
+	// ── Generate ─────────────────────────────────────────────────────────────────
 
 	private async handleGenerate(promptInput: string): Promise<void> {
 		const prompt = (promptInput ?? '').trim();
@@ -106,7 +155,14 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					title: 'IntelliTest: generating test cases…',
 					cancellable: false
 				},
-				async () => generateViaBackend(backendUrl, workspaceRootPath, this.detectedStack, prompt)
+				// Use the new stateful v2 endpoint
+				async () => generateViaBackendV2(
+					backendUrl,
+					this.projectId,
+					workspaceRootPath,
+					this.detectedStack,
+					prompt
+				)
 			);
 
 			this.recommendedTestingFramework =
@@ -120,6 +176,8 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${errorMessage}`);
 		}
 	}
+
+	// ── Clipboard / file ops ──────────────────────────────────────────────────────
 
 	private async handleCopyTestScript(code: string): Promise<void> {
 		if (!code?.trim()) {
@@ -195,6 +253,8 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			this.postExportStatus(false);
 		}
 	}
+
+	// ── Post-to-webview helpers ───────────────────────────────────────────────────
 
 	private postResult(generated: IntelliGenerationResult): void {
 		void this.view?.webview.postMessage({

@@ -1,35 +1,20 @@
 /**
- * AI Service — wraps llmService with:
- *   1. Configurable timeout (AbortController)
+ * AI Service — wraps the LLM provider with:
+ *   1. AbortController timeout
  *   2. Retry logic with correction prompt on invalid output
  *   3. Structured error classification (source: "AI" | "backend")
  *
- * Environment variables:
- *   AI_TIMEOUT_MS      — ms before a single attempt is cancelled (default 30 000)
- *   AI_MAX_RETRIES     — total additional retries on bad output (default 2)
+ * All configuration is loaded once at module initialisation from config.js.
+ * No process.env reads inside request-path code.
  */
 
-import axios from "axios";
+import axios        from "axios";
+import { ai as cfg } from "../config.js";
 import { logTerminalSection, logger } from "../utils/logger.js";
 
-// ── config ────────────────────────────────────────────────────────────────────
-const TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 30_000;
-const MAX_RETRIES = Number(process.env.AI_MAX_RETRIES) || 2;
+// ── Error types ───────────────────────────────────────────────────────────────
 
-// ── error helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Standardised error object attached to thrown errors and API responses.
- * @param {"AI"|"backend"} source
- * @param {string} type
- * @param {string} message
- * @param {unknown} [detail]
- */
-export function buildErrorPayload(source, type, message, detail) {
-  return { source, type, message, ...(detail !== undefined ? { detail } : {}) };
-}
-
-class AiError extends Error {
+export class AiError extends Error {
   /**
    * @param {"AI"|"backend"} source
    * @param {string} type
@@ -37,61 +22,55 @@ class AiError extends Error {
    */
   constructor(source, type, message) {
     super(message);
+    this.name   = "AiError";
     this.source = source;
-    this.type = type;
+    this.type   = type;
   }
 }
 
-// ── LLM provider adapters ─────────────────────────────────────────────────────
-
-function getConfig() {
-  const provider = (process.env.LLM_PROVIDER || "ollama").toLowerCase();
-  return {
-    provider,
-    ollamaBase: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
-    ollamaModel: process.env.OLLAMA_MODEL || "llama3.2",
-    apiBase: process.env.API_BASE_URL || "",
-    apiKey: process.env.API_KEY || "",
-    apiModel: process.env.API_MODEL || "gpt-4o-mini",
-  };
+export function buildErrorPayload(source, type, message, detail) {
+  return { source, type, message, ...(detail !== undefined ? { detail } : {}) };
 }
 
+// ── Provider adapters ─────────────────────────────────────────────────────────
+
 /**
- * Single attempt to the Ollama local API with abort signal support.
- * @param {ReturnType<getConfig>} cfg
+ * Single call to the Ollama local inference server.
  * @param {string} prompt
  * @param {AbortSignal} signal
  * @returns {Promise<string>}
  */
-async function callOllama(cfg, prompt, signal) {
-  const url = `${cfg.ollamaBase.replace(/\/$/, "")}/api/chat`;
+async function callOllama(prompt, signal) {
+  const url  = `${cfg.ollamaBase.replace(/\/$/, "")}/api/chat`;
   const body = {
-    model: cfg.ollamaModel,
+    model:    cfg.ollamaModel,
     messages: [{ role: "user", content: prompt }],
-    stream: false,
+    stream:   false,
   };
+
   try {
-    const { data } = await axios.post(url, body, { signal, timeout: TIMEOUT_MS + 5_000 });
+    const { data } = await axios.post(url, body, {
+      signal,
+      timeout: cfg.timeoutMs + 5_000, // axios hard cap slightly above abort timeout
+    });
     const text = data?.message?.content ?? data?.response ?? "";
     return typeof text === "string" ? text : JSON.stringify(text);
   } catch (e) {
     if (e.name === "AbortError" || e.code === "ERR_CANCELED") {
       throw new AiError("AI", "Timeout", "Ollama request timed out.");
     }
-    const detail = e.message;
-    logger.error("ollama_request_failed", { message: detail, url });
-    throw new AiError("AI", "ProviderError", `Ollama request failed: ${detail}`);
+    logger.error("ollama_call_failed", { message: e.message, url });
+    throw new AiError("AI", "ProviderError", `Ollama request failed: ${e.message}`);
   }
 }
 
 /**
- * Single attempt to an OpenAI-compatible API with abort signal support.
- * @param {ReturnType<getConfig>} cfg
+ * Single call to an OpenAI-compatible HTTP API (Groq, OpenAI, etc.).
  * @param {string} prompt
  * @param {AbortSignal} signal
  * @returns {Promise<string>}
  */
-async function callOpenAICompatible(cfg, prompt, signal) {
+async function callOpenAICompatible(prompt, signal) {
   if (!cfg.apiBase || !cfg.apiKey) {
     throw new AiError(
       "backend",
@@ -99,18 +78,20 @@ async function callOpenAICompatible(cfg, prompt, signal) {
       "API_BASE_URL and API_KEY are required when LLM_PROVIDER=api"
     );
   }
-  const url = `${cfg.apiBase.replace(/\/$/, "")}/chat/completions`;
+
+  const url  = `${cfg.apiBase.replace(/\/$/, "")}/chat/completions`;
   const body = {
-    model: cfg.apiModel,
-    messages: [{ role: "user", content: prompt }],
+    model:       cfg.apiModel,
+    messages:    [{ role: "user", content: prompt }],
     temperature: 0.2,
   };
+
   try {
     const { data } = await axios.post(url, body, {
       signal,
-      timeout: TIMEOUT_MS + 5_000,
+      timeout: cfg.timeoutMs + 5_000,
       headers: {
-        Authorization: `Bearer ${cfg.apiKey}`,
+        Authorization:  `Bearer ${cfg.apiKey}`,
         "Content-Type": "application/json",
       },
     });
@@ -120,32 +101,52 @@ async function callOpenAICompatible(cfg, prompt, signal) {
     if (e.name === "AbortError" || e.code === "ERR_CANCELED") {
       throw new AiError("AI", "Timeout", "AI API request timed out.");
     }
-    const status = e.response?.status;
-    const body = e.response?.data;
-    let apiHint = "";
-    if (body && typeof body === "object") {
-      const errObj = body.error;
-      if (typeof errObj === "string") apiHint = errObj;
-      else if (errObj && typeof errObj.message === "string") apiHint = errObj.message;
-      else if (typeof body.message === "string") apiHint = body.message;
-    }
-    const detail = apiHint || e.message;
-    logger.error("api_llm_request_failed", { message: detail, status });
+    const status   = e.response?.status;
+    const bodyData = e.response?.data;
+    const apiHint  = extractApiErrorMessage(bodyData);
+    const detail   = apiHint || e.message;
+
+    logger.error("api_call_failed", { message: detail, status });
     throw new AiError(
       "AI",
       "ProviderError",
       apiHint
-        ? `LLM API request failed (${status ?? "?"}): ${apiHint}`
+        ? `LLM API error (${status ?? "?"}): ${apiHint}`
         : `LLM API request failed: ${e.message}`
     );
   }
 }
 
-// ── timeout wrapper ───────────────────────────────────────────────────────────
+/** Extract a human-readable error string from a provider error response body. */
+function extractApiErrorMessage(body) {
+  if (!body || typeof body !== "object") return "";
+  const err = body.error;
+  if (typeof err === "string")                 return err;
+  if (err && typeof err.message === "string")  return err.message;
+  if (typeof body.message === "string")        return body.message;
+  return "";
+}
+
+// ── Provider dispatcher ───────────────────────────────────────────────────────
 
 /**
- * Run `fn(signal)` with a timeout of `ms` milliseconds.
- * Rejects with AiError("AI","Timeout",...) if time elapses first.
+ * Dispatch a single prompt to the configured provider.
+ * Returns the raw text response.
+ *
+ * @param {string} prompt
+ * @param {AbortSignal} signal
+ * @returns {Promise<string>}
+ */
+function callProvider(prompt, signal) {
+  return cfg.provider === "api"
+    ? callOpenAICompatible(prompt, signal)
+    : callOllama(prompt, signal);
+}
+
+// ── Timeout wrapper ───────────────────────────────────────────────────────────
+
+/**
+ * Run `fn(signal)` with an AbortController timeout.
  * @param {(signal: AbortSignal) => Promise<string>} fn
  * @param {number} ms
  * @returns {Promise<string>}
@@ -157,34 +158,33 @@ async function withTimeout(fn, ms) {
     return await fn(controller.signal);
   } catch (err) {
     if (err instanceof AiError) throw err;
-    // wrap unexpected errors
     throw new AiError("AI", "UnexpectedError", err.message);
   } finally {
     clearTimeout(timer);
   }
 }
 
-// ── retry with correction ─────────────────────────────────────────────────────
+// ── Retry with correction ─────────────────────────────────────────────────────
+
+const CORRECTION_PREFIX =
+  "The previous response was malformed. Fix the JSON structure and follow the required schema strictly.\n\n";
 
 /**
  * Attempt `fn` up to `maxRetries + 1` times.
- * On each failed attempt (validator returns falsy / throws), inject a
- * correction prompt into the next call.
+ * On each failed validation, injects a correction prefix into the next prompt.
  *
- * @param {(prompt: string) => Promise<string>} fn         raw completion function
+ * @param {(prompt: string) => Promise<string>} fn
  * @param {string} initialPrompt
- * @param {(raw: string) => boolean} validator              returns true if output is good
+ * @param {(raw: string) => boolean} validator
  * @param {{ maxRetries?: number, correctionPrompt?: string }} [opts]
  * @returns {Promise<string>}
  */
 export async function completeWithRetry(fn, initialPrompt, validator, opts = {}) {
-  const maxRetries = opts.maxRetries ?? MAX_RETRIES;
-  const correctionPrefix =
-    opts.correctionPrompt ??
-    "The previous response was malformed. Fix the JSON structure and follow the required schema strictly.\n\n";
+  const maxRetries     = opts.maxRetries      ?? cfg.maxRetries;
+  const correctionPfx  = opts.correctionPrompt ?? CORRECTION_PREFIX;
 
-  let prompt = initialPrompt;
-  let lastRaw = "";
+  let prompt    = initialPrompt;
+  let lastRaw   = "";
   let lastError = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -193,36 +193,30 @@ export async function completeWithRetry(fn, initialPrompt, validator, opts = {})
       lastRaw = raw;
 
       if (validator(raw)) {
-        if (attempt > 0) {
-          logger.info("ai_retry_succeeded", { attempt });
-        }
+        if (attempt > 0) logger.info("ai_retry_succeeded", { attempt });
         return raw;
       }
 
-      // Output came back but failed validation
-      logger.warn("ai_output_failed_validation", { attempt, preview: raw.slice(0, 200) });
+      logger.warn("ai_output_invalid", { attempt, preview: raw.slice(0, 200) });
 
       if (attempt < maxRetries) {
-        prompt = `${correctionPrefix}Previous bad response:\n${raw.slice(0, 800)}\n\nOriginal instruction:\n${initialPrompt}`;
+        prompt = `${correctionPfx}Previous bad response:\n${raw.slice(0, 800)}\n\nOriginal instruction:\n${initialPrompt}`;
       }
     } catch (err) {
       lastError = err;
-      logger.warn("ai_attempt_failed", { attempt, error: err.message });
+      logger.warn("ai_attempt_failed", { attempt, type: err.type ?? err.name, message: err.message });
 
-      // Timeout errors — no point retrying (the model won't suddenly be faster)
-      if (err instanceof AiError && err.type === "Timeout") throw err;
-
-      // Config errors — won't fix themselves
-      if (err instanceof AiError && err.type === "MissingConfig") throw err;
+      // These error categories won't resolve on retry — throw immediately
+      if (err instanceof AiError && (err.type === "Timeout" || err.type === "MissingConfig")) {
+        throw err;
+      }
 
       if (attempt === maxRetries) break;
     }
   }
 
-  // All attempts exhausted
   if (lastError) throw lastError;
 
-  // Output never validated — throw a descriptive error
   throw new AiError(
     "AI",
     "InvalidResponse",
@@ -230,51 +224,38 @@ export async function completeWithRetry(fn, initialPrompt, validator, opts = {})
   );
 }
 
-// ── public API ────────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Primary entry-point used by controllers.
  *
  * @param {string} prompt
- * @param {{ validator?: (raw: string) => boolean, correctionPrompt?: string }} [opts]
- * @returns {Promise<string>} raw model text (always a string)
+ * @param {{ validator?: (raw: string) => boolean, correctionPrompt?: string, maxRetries?: number }} [opts]
+ * @returns {Promise<string>} raw model text
  */
 export async function complete(prompt, opts = {}) {
-  logTerminalSection("AI input (full prompt sent to the model)", prompt);
-  const cfg = getConfig();
+  logTerminalSection("AI → prompt", prompt);
 
-  const callProvider = (signal) =>
-    cfg.provider === "api"
-      ? callOpenAICompatible(cfg, prompt, signal)
-      : callOllama(cfg, prompt, signal);
-
-  const validator = opts.validator ?? (() => true); // default: accept any non-empty string
+  const validator = opts.validator ?? (() => true);
 
   try {
     const raw = await completeWithRetry(
-      (p) => withTimeout((signal) => {
-        // rebuild provider call with potentially updated prompt
-        const callFn = cfg.provider === "api"
-          ? (s) => callOpenAICompatible(cfg, p, s)
-          : (s) => callOllama(cfg, p, s);
-        return callFn(signal);
-      }, TIMEOUT_MS),
+      (p) => withTimeout((signal) => callProvider(p, signal), cfg.timeoutMs),
       prompt,
       (r) => typeof r === "string" && r.trim().length > 0 && validator(r),
       opts
     );
 
-    logTerminalSection("AI output (raw model text)", raw);
+    logTerminalSection("AI → raw output", raw);
     return raw;
   } catch (err) {
-    // Re-throw as AiError so the controller can respond consistently
     if (err instanceof AiError) throw err;
     throw new AiError("backend", "UnexpectedError", err.message);
   }
 }
 
 /**
- * Fallback response shape for timeout / unrecoverable errors.
+ * Build a standardised fallback payload from an AiError or generic Error.
  * @param {AiError|Error} err
  * @returns {{ source: string, type: string, message: string }}
  */

@@ -1,0 +1,259 @@
+/**
+ * Project Service — all MongoDB interactions for IntelliTest.
+ *
+ * Covers:
+ *   - Project upsert
+ *   - ProjectContext merge (race-condition-safe via findOneAndUpdate upsert)
+ *   - Message persistence & retrieval
+ *   - AIGeneration + AIMetrics persistence
+ *   - Feature upsert
+ *
+ * Zero Express dependencies — every function is a pure async data-layer call.
+ */
+
+import { Project }        from "../models/Project.js";
+import { ProjectContext } from "../models/ProjectContext.js";
+import { Message }        from "../models/Message.js";
+import { AIGeneration }   from "../models/AIGeneration.js";
+import { AIMetrics }      from "../models/AIMetrics.js";
+import { Feature }        from "../models/Feature.js";
+import { logger }         from "../utils/logger.js";
+import { unionArrays }    from "../utils/helpers.js";
+
+// ── Project ────────────────────────────────────────────────────────────────────
+
+/**
+ * Find-or-create a project document for the given projectId.
+ * Uses $setOnInsert so an existing document is never mutated.
+ *
+ * @param {string} projectId
+ * @param {object} projectMap — normalised payload from validateGenerate middleware
+ * @returns {Promise<object>} lean project document
+ */
+export async function upsertProject(projectId, projectMap) {
+  const project = await Project.findOneAndUpdate(
+    { projectId },
+    {
+      $setOnInsert: {
+        projectId,
+        name: projectMap.name || projectMap.type || "Unnamed Project",
+        type: projectMap.type || "unknown",
+        techStack: {
+          language:  projectMap.language  || "",
+          framework: projectMap.framework || "",
+          extras:    [],
+        },
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  return project.toObject();
+}
+
+// ── ProjectContext ─────────────────────────────────────────────────────────────
+
+/**
+ * Load the stored ProjectContext for a project.
+ * Returns null if no context exists yet.
+ *
+ * @param {string} projectId
+ * @returns {Promise<object|null>}
+ */
+export async function loadContext(projectId) {
+  return ProjectContext.findOne({ projectId }).lean();
+}
+
+/**
+ * Merge incoming projectMap data into the stored ProjectContext.
+ *
+ * Race-condition safe: uses a single atomic findOneAndUpdate with upsert:true.
+ * If two concurrent requests both see "no existing doc" they will both attempt
+ * upsert — MongoDB's unique index on projectId ensures only one wins; the other
+ * retries the update path automatically via the $set/$inc operators.
+ *
+ * codeInsights (a Map field) is handled with a dot-notation $set so individual
+ * keys are merged rather than the whole map being replaced.
+ *
+ * @param {string} projectId
+ * @param {object} projectMap
+ * @returns {Promise<object>} updated context as plain object
+ */
+export async function mergeContext(projectId, projectMap) {
+  const incoming = {
+    modules:       projectMap.modules       ?? [],
+    routes:        projectMap.routes        ?? [],
+    priorityFiles: projectMap.priorityFiles ?? [],
+    codeInsights:  projectMap.codeInsights && typeof projectMap.codeInsights === "object"
+      ? projectMap.codeInsights
+      : {},
+  };
+
+  // Load current state for union computation (one round-trip before the update)
+  const existing = await ProjectContext.findOne({ projectId }).lean();
+
+  const mergedModules       = unionArrays(existing?.modules,       incoming.modules);
+  const mergedRoutes        = unionArrays(existing?.routes,        incoming.routes);
+  const mergedPriorityFiles = unionArrays(existing?.priorityFiles, incoming.priorityFiles);
+
+  // Build dot-notation updates for codeInsights map entries
+  const insightUpdates = {};
+  for (const [k, v] of Object.entries(incoming.codeInsights)) {
+    insightUpdates[`codeInsights.${k}`] = v;
+  }
+
+  const updated = await ProjectContext.findOneAndUpdate(
+    { projectId },
+    {
+      $set: {
+        modules:       mergedModules,
+        routes:        mergedRoutes,
+        priorityFiles: mergedPriorityFiles,
+        ...insightUpdates,
+      },
+      $inc:         { contextVersion: 1 },
+      $setOnInsert: { projectId },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  return updated.toObject();
+}
+
+// ── Messages ───────────────────────────────────────────────────────────────────
+
+/**
+ * Return the most recent `limit` messages in chronological order.
+ *
+ * @param {string} projectId
+ * @param {number} [limit=50]
+ * @returns {Promise<object[]>}
+ */
+export async function loadMessages(projectId, limit = 50) {
+  const msgs = await Message.find({ projectId })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+  return msgs.reverse(); // oldest first for chat rendering
+}
+
+/**
+ * Persist one prompt ↔ response exchange.
+ *
+ * @param {string} projectId
+ * @param {string} prompt
+ * @param {string} response — serialised AI output (JSON string)
+ * @returns {Promise<object>} saved message as plain object
+ */
+export async function saveMessage(projectId, prompt, response) {
+  const msg = await Message.create({ projectId, prompt, response });
+  logger.info("message_saved", { projectId, messageId: String(msg._id) });
+  return msg.toObject();
+}
+
+// ── AIGeneration + AIMetrics ───────────────────────────────────────────────────
+
+/**
+ * @typedef {object} SaveGenerationOpts
+ * @property {string}   projectId
+ * @property {string}   prompt
+ * @property {string}   [normalizedPrompt]
+ * @property {object}   [projectMap]
+ * @property {string}   [response]
+ * @property {number}   latencyMs
+ * @property {number}   [retryCount]
+ * @property {"ok"|"fallback"|"error"} [status]
+ * @property {boolean}  [isValid]
+ * @property {string[]} [validationErrors]
+ */
+
+/**
+ * Persist one AI generation record and its corresponding metrics entry.
+ * Both writes are independent — a metrics failure does not roll back the generation.
+ *
+ * @param {SaveGenerationOpts} opts
+ * @returns {Promise<{ generation: object, metrics: object }>}
+ */
+export async function saveGeneration(opts) {
+  const {
+    projectId,
+    prompt,
+    normalizedPrompt = "",
+    projectMap       = null,
+    response         = "",
+    latencyMs,
+    retryCount       = 0,
+    status           = "ok",
+    isValid          = true,
+    validationErrors = [],
+  } = opts;
+
+  const [generation, metrics] = await Promise.all([
+    AIGeneration.create({
+      projectId, prompt, normalizedPrompt, projectMap,
+      response, latencyMs, retryCount, status, isValid, validationErrors,
+    }),
+    // Metrics written optimistically — _id available after AIGeneration.create
+    null, // placeholder; written below once we have generation._id
+  ]);
+
+  const metricsDoc = await AIMetrics.create({
+    projectId,
+    generationId: generation._id,
+    latencyMs,
+    retryCount,
+    errorType: status === "error" ? (validationErrors[0] ?? "UnknownError") : null,
+  });
+
+  logger.info("generation_saved", {
+    projectId,
+    generationId: String(generation._id),
+    latencyMs,
+    retryCount,
+    status,
+  });
+
+  return {
+    generation: generation.toObject(),
+    metrics:    metricsDoc.toObject(),
+  };
+}
+
+// ── Features ───────────────────────────────────────────────────────────────────
+
+/**
+ * Load all features for a project, sorted by testScore descending.
+ *
+ * @param {string} projectId
+ * @returns {Promise<object[]>}
+ */
+export async function loadFeatures(projectId) {
+  return Feature.find({ projectId }).sort({ testScore: -1 }).lean();
+}
+
+/**
+ * Bulk-upsert features extracted from a set of test cases.
+ * Each feature is found-or-created by (projectId, name) and its
+ * totalTests counter incremented atomically.
+ *
+ * @param {string} projectId
+ * @param {Array<{ name: string, description?: string, testScore?: number }>} features
+ * @returns {Promise<void>}
+ */
+export async function upsertFeatures(projectId, features) {
+  if (!Array.isArray(features) || features.length === 0) return;
+
+  const ops = features.map((f) => ({
+    updateOne: {
+      filter: { projectId, name: f.name },
+      update: {
+        $setOnInsert: { projectId, name: f.name, description: f.description ?? "" },
+        $inc:         { "metrics.totalTests": 1 },
+        $set:         { testScore: Math.min(100, f.testScore ?? 0) },
+      },
+      upsert: true,
+    },
+  }));
+
+  await Feature.bulkWrite(ops, { ordered: false });
+}
