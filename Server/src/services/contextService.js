@@ -50,7 +50,7 @@ export function enrichProjectMap(projectMap, context) {
  * @param {object[]} testCases — normalised test case array from formatter
  * @returns {Array<{ name: string, testScore: number }>}
  */
-export function extractFeatures(testCases) {
+export function extractTestFeatures(testCases) {
   if (!Array.isArray(testCases) || testCases.length === 0) return [];
 
   const nameSet = new Set();
@@ -82,3 +82,77 @@ export function insightsToArray(codeInsights) {
       : Object.entries(codeInsights);
   return entries.map(([k, v]) => `${k}: ${v}`);
 }
+
+/**
+ * Clean the project context by removing noise tokens, deduplicating,
+ * and normalizing naming.
+ */
+export function cleanContext(projectMap) {
+  if (!projectMap) return projectMap;
+
+  const cleanArray = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return [...new Set(arr.map(item => {
+      let name = typeof item === "string" ? item : (item.name || "");
+      name = name.replace(/\.(js|ts|jsx|tsx|html|css|json|yml|yaml|md|xlsx|csv)$/i, "");
+      name = name.replace(/\b(?:config|index|test|spec)\b/gi, "");
+      return name.trim();
+    }).filter(Boolean))];
+  };
+
+  const routes = cleanArray(projectMap.routes);
+  const modules = cleanArray(projectMap.modules);
+  const priorityFiles = cleanArray(projectMap.priorityFiles);
+
+  const codeInsights = projectMap.codeInsights ? { ...projectMap.codeInsights } : {};
+  if (codeInsights.functions) codeInsights.functions = cleanArray(codeInsights.functions);
+  if (codeInsights.variables) codeInsights.variables = cleanArray(codeInsights.variables);
+  if (codeInsights.classes) codeInsights.classes = cleanArray(codeInsights.classes);
+
+  return { ...projectMap, routes, modules, priorityFiles, codeInsights };
+}
+
+/**
+ * Extract meaningful domain features from the projectMap context.
+ * Removes noise (numbers, extensions, generic terms) to yield clean features.
+ * @param {object} projectMap
+ * @returns {{ features: string[] }}
+ */
+export function extractFeatures(projectMap) {
+  const featureSet = new Set();
+  
+  const processTokens = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      let name = typeof item === "string" ? item : (item.name || "");
+      // Split camel case, lower case
+      name = name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+      // Remove extensions
+      name = name.replace(/\.[a-z0-9]+$/i, "");
+      // Remove numbers
+      name = name.replace(/[0-9]+/g, " ");
+      // Remove generic architectural terms
+      name = name.replace(/\b(controller|page|route|module|service|api|component|model|view)\b/g, " ");
+      
+      const words = name.split(/[\s\-_]+/).filter(w => w.length > 2);
+      const ignoreList = new Set(["config", "index", "app", "server", "main", "pag", "cas", "xlsx", "csv", "json", "xml"]);
+      
+      for (const w of words) {
+         if (!ignoreList.has(w)) {
+            featureSet.add(w);
+         }
+      }
+    }
+  };
+
+  if (projectMap.routes) processTokens(projectMap.routes);
+  if (projectMap.modules) processTokens(projectMap.modules);
+  if (projectMap.priorityFiles) processTokens(projectMap.priorityFiles);
+  if (projectMap.codeInsights) {
+    processTokens(projectMap.codeInsights.functions);
+    processTokens(projectMap.codeInsights.classes);
+  }
+  
+  return { features: Array.from(featureSet) };
+}
+

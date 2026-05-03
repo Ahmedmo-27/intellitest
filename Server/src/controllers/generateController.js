@@ -65,54 +65,87 @@ export async function generate(req, res) {
 
   try {
     // ── Step 1: Upsert project + merge context (parallel) ────────────────────
-    const [, context] = await Promise.all([
-      projectService.upsertProject(userId, projectId, projectMap),
-      projectService.mergeContext(userId, projectId, projectMap),
-    ]);
+    let context = null;
+    if (userId) {
+      const [, ctx] = await Promise.all([
+        projectService.upsertProject(userId, projectId, projectMap),
+        projectService.mergeContext(userId, projectId, projectMap),
+      ]);
+      context = ctx;
+    }
 
     // ── Step 2: Enrich projectMap with stored context ─────────────────────────
     const enrichedMap = contextService.enrichProjectMap(projectMap, context);
 
-    // ── Step 2.5: Guardrail Decision Layer ────────────────────────────────────
-    const matchResult = guardrailService.matchPromptToContext(userPrompt, enrichedMap);
+    // ── Step 2.1: Clean Context ───────────────────────────────────────────────
+    const cleanedMap = contextService.cleanContext(enrichedMap);
 
-    if (matchResult.matchType === "none" && userPrompt.trim().length > 0) {
-      // ❌ NO MATCH
-      logger.warn("guardrail_rejected", { projectId, prompt: userPrompt });
-      return res.status(400).json({
-        error: "Feature not found in project",
-        warning: "Feature not found in project",
-        suggestions: ["Check your spelling", "Ensure the feature exists in the codebase"],
-        detectedFeatures: [],
-        meta: { fallback: true }
-      });
+    // ── Step 2.2: Extract Features ────────────────────────────────────────────
+    const extractedObj = contextService.extractFeatures(cleanedMap);
+    const allowedFeatures = extractedObj.features;
+
+    // ── Step 2.5: Guardrail Decision Layer ────────────────────────────────────
+    const matchResult = guardrailService.matchPromptToContext(userPrompt, cleanedMap);
+
+    let decision = "allowed";
+    if (userPrompt.trim().length > 0) {
+      if (matchResult.matchType === "none") {
+        decision = "rejected";
+      } else if (matchResult.matchType === "partial") {
+        decision = "partial";
+      }
     }
+
+    logger.info("guardrail_check", {
+      event: "guardrail_check",
+      promptKeywords: matchResult.promptKeywords || [],
+      contextKeywords: matchResult.contextKeywords || [],
+      score: matchResult.score || 0,
+      matchType: matchResult.matchType,
+      decision
+    });
+
+    // We no longer early-reject. We let it proceed with a soft warning later.
 
     // ── Step 3: Build prompt ──────────────────────────────────────────────────
     // Pass matchResult so the prompt enforcement layer can limit scope if needed
-    const aiPrompt = promptService.generateTestCasesPrompt(enrichedMap, matchResult);
+    const aiPrompt = promptService.generateTestCasesPrompt(cleanedMap, matchResult);
 
     // ── Step 4: AI call with tracking validator ───────────────────────────────
     const validator = makeQuickValidator(TEST_CASES_SCHEMA);
     let callCount   = 0;
+    let aiOutputWarning = null;
     const trackingValidator = (raw) => { 
       callCount++; 
       if (!validator(raw)) return false;
       
       // POST-AI Validation: Validate context alignment
       const parsed = formatter.parseTestCasesArray(raw);
-      const validationResult = guardrailService.validateResponseAgainstContext(parsed, enrichedMap);
-      if (!validationResult.isValid) {
-         logger.warn("guardrail_hallucination", { unknown: validationResult.unknownFeatures });
-         // Return false to trigger retry with correction prompt
-         return false;
+      const validationResult = guardrailService.validateAIOutput(parsed, allowedFeatures);
+      
+      if (validationResult.decision === "warning") {
+         logger.warn("guardrail_hallucination", { 
+           event: "validation", 
+           allowedFeatures, 
+           detectedTerms: validationResult.detectedTerms, 
+           invalidTerms: validationResult.invalidTerms, 
+           decision: validationResult.decision 
+         });
+         
+         if (callCount <= 2) {
+             return false;
+         }
+         aiOutputWarning = `The AI included unknown domain features: ${validationResult.invalidTerms.join(", ")}`;
+      } else {
+         aiOutputWarning = null;
       }
       return true;
     };
 
     rawAiOutput = await complete(aiPrompt, { 
       validator: trackingValidator,
-      correctionPrompt: "The previous response hallucinated features not present in the codebase. STRICTLY limit your tags and test targets to the provided modules, routes, and functions.\n\n"
+      correctionPrompt: `The previous response hallucinated features. STRICTLY limit your tags and test targets to these known features: [${allowedFeatures.join(", ")}].\n\n`,
+      maxRetries: 2
     });
     retryCount  = Math.max(0, callCount - 1); // attempt 0 = first call
 
@@ -131,31 +164,35 @@ export async function generate(req, res) {
     const latencyMs = Date.now() - startMs;
 
     // ── Step 7: Persist message + generation (parallel) ───────────────────────
-    await Promise.all([
-      projectService.saveMessage(
-        userId,
-        projectId,
-        userPrompt || aiPrompt.slice(0, 200),
-        JSON.stringify({ testCases })
-      ),
-      projectService.saveGeneration({
-        userId,
-        projectId,
-        prompt:           aiPrompt,
-        normalizedPrompt: userPrompt,
-        projectMap:       enrichedMap,
-        response:         rawAiOutput,
-        latencyMs,
-        retryCount,
-        status:           aiStatus,
-        isValid:          validation.ok,
-        validationErrors,
-      }),
-    ]);
+    if (userId) {
+      await Promise.all([
+        projectService.saveMessage(
+          userId,
+          projectId,
+          userPrompt || aiPrompt.slice(0, 200),
+          JSON.stringify({ testCases })
+        ),
+        projectService.saveGeneration({
+          userId,
+          projectId,
+          prompt:           aiPrompt,
+          normalizedPrompt: userPrompt,
+          projectMap:       cleanedMap,
+          response:         rawAiOutput,
+          latencyMs,
+          retryCount,
+          status:           aiStatus,
+          isValid:          validation.ok,
+          validationErrors,
+        }),
+      ]);
+    }
 
     // ── Step 8: Upsert features ───────────────────────────────────────────────
-    const features = contextService.extractFeatures(testCases);
-    await projectService.upsertFeatures(userId, projectId, features);
+    if (userId) {
+      const features = contextService.extractTestFeatures(testCases);
+      await projectService.upsertFeatures(userId, projectId, features);
+    }
 
     // ── Step 9: Respond ───────────────────────────────────────────────────────
     const responsePayload = {
@@ -169,12 +206,16 @@ export async function generate(req, res) {
         retryCount,
         contextVersion: context?.contextVersion ?? 1,
         fallback:       aiStatus === "fallback",
-        matchConfidence: matchResult.confidence
+        matchConfidence: matchResult.score
       },
     };
 
     if (matchResult.matchType === "partial") {
       responsePayload.warning = "Prompt only partially matched the project context. The output has been limited to known features.";
+    }
+    
+    if (aiOutputWarning) {
+      responsePayload.warning = (responsePayload.warning ? responsePayload.warning + " " : "") + aiOutputWarning;
     }
 
     return res.json(responsePayload);
@@ -184,21 +225,23 @@ export async function generate(req, res) {
     logger.error("generate_failed", { projectId, message: err.message, latencyMs });
 
     // Best-effort persistence — fire-and-forget; must not mask the original error
-    projectService
-      .saveGeneration({
-        userId,
-        projectId,
-        prompt:           aiPrompt_safe(req.projectMap),
-        response:         rawAiOutput,
-        latencyMs,
-        retryCount,
-        status:           "error",
-        isValid:          false,
-        validationErrors: [err.message],
-      })
-      .catch((dbErr) =>
-        logger.error("generation_persist_failed", { message: dbErr.message })
-      );
+    if (userId) {
+      projectService
+        .saveGeneration({
+          userId,
+          projectId,
+          prompt:           aiPrompt_safe(req.projectMap),
+          response:         rawAiOutput,
+          latencyMs,
+          retryCount,
+          status:           "error",
+          isValid:          false,
+          validationErrors: [err.message],
+        })
+        .catch((dbErr) =>
+          logger.error("generation_persist_failed", { message: dbErr.message })
+        );
+    }
 
     return sendError(res, err, FALLBACK_GENERATE);
   }

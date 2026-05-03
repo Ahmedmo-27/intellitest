@@ -9,7 +9,7 @@ const { Schema, model } = mongoose;
 
 const AIGenerationSchema = new Schema(
   {
-    userId:           { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    userId:           { type: Schema.Types.ObjectId, ref: "User", required: false, index: true },
     projectId:        { type: String, required: true, index: true },
     prompt:           { type: String, required: true },
     normalizedPrompt: { type: String, default: "" },

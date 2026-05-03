@@ -3,126 +3,230 @@
  * Validates user prompt against project context to prevent AI hallucinations.
  */
 
+const STOP_WORDS = new Set(["the", "to", "a", "of", "and", "in", "on", "for", "with", "is", "at", "by", "from", "an", "this", "that", "it"]);
+
+const SYNONYMS = {
+  "add": ["create", "insert"],
+  "cart": ["basket"],
+  "order": ["checkout", "purchase"]
+};
+
+/**
+ * Normalizes text by converting to lowercase, splitting camelCase,
+ * removing special characters and stop words.
+ * @param {string} text
+ * @returns {string[]} array of keywords
+ */
+export function normalize(text) {
+  if (!text || typeof text !== "string") return [];
+  
+  // Split camelCase
+  let normalized = text.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  
+  // Remove special characters
+  normalized = normalized.replace(/[^a-z0-9\s]/g, ' ');
+  
+  // Split into words
+  const words = normalized.split(/\s+/).filter(Boolean);
+  
+  // Remove stopwords and apply basic stemming
+  return words
+    .filter(word => !STOP_WORDS.has(word))
+    .map(word => {
+      // Basic stemming to handle cases like "adding" -> "add"
+      if (word.length <= 3) return word;
+      if (word.endsWith('ing')) {
+        // e.g. "adding" -> "add"
+        let stem = word.slice(0, -3);
+        if (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2]) {
+          stem = stem.slice(0, -1); // "add"
+        }
+        return stem;
+      }
+      if (word.endsWith('ed')) {
+        let stem = word.slice(0, -2);
+        if (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2]) {
+          stem = stem.slice(0, -1);
+        }
+        return stem;
+      }
+      if (word.endsWith('es') && !word.endsWith('ss')) return word.slice(0, -2);
+      if (word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+      return word;
+    });
+}
+
 /**
  * Validates whether a user prompt matches the actual project context
  * @param {string} prompt 
  * @param {object} context 
- * @returns {object} { matchType: "none" | "partial" | "strong", matchedFeatures: [], confidence: number }
+ * @returns {object} { matchType: "none" | "partial" | "strong", score: number, matchedKeywords: string[], promptKeywords: string[], contextKeywords: string[], suggestions: string[] }
  */
 export function matchPromptToContext(prompt, context) {
   if (!prompt || typeof prompt !== "string") {
-    // If no prompt, it's essentially an open generation based on context
-    return { matchType: "strong", matchedFeatures: [], confidence: 100 };
+    return { matchType: "strong", score: 1, matchedKeywords: [], promptKeywords: [], contextKeywords: [], suggestions: [] };
   }
 
-  const promptLower = prompt.toLowerCase();
-  const matchedFeatures = [];
-  let confidence = 0;
+  const basePromptKeywords = normalize(prompt);
+  
+  if (basePromptKeywords.length === 0) {
+    return { matchType: "strong", score: 1, matchedKeywords: [], promptKeywords: [], contextKeywords: [], suggestions: [] };
+  }
 
-  // Extract features from context
-  const modules = context.modules || [];
-  const routes = context.routes || [];
-  const codeInsights = context.codeInsights || {};
-  const functions = codeInsights.functions || [];
-  const variables = codeInsights.variables || [];
-  const classes = codeInsights.classes || [];
-  const priorityFiles = context.priorityFiles || [];
+  // Expand prompt keywords with synonyms
+  const promptKeywords = new Set(basePromptKeywords);
+  for (const word of basePromptKeywords) {
+    for (const [key, syns] of Object.entries(SYNONYMS)) {
+      if (word === key) {
+        syns.forEach(s => promptKeywords.add(s));
+      } else if (syns.includes(word)) {
+        promptKeywords.add(key);
+        syns.forEach(s => promptKeywords.add(s));
+      }
+    }
+  }
 
-  // Helper to check and add match
-  const checkMatch = (list, type) => {
+  const contextKeywordsSet = new Set();
+  
+  // Helper to extract and normalize
+  const extractAndNormalize = (list) => {
     if (!Array.isArray(list)) return;
     for (const item of list) {
       const name = typeof item === "string" ? item : (item.name || "");
-      if (name && promptLower.includes(name.toLowerCase())) {
-        matchedFeatures.push({ type, name });
-        confidence += 20; // weight per match
+      if (name) {
+        const words = normalize(name);
+        words.forEach(w => contextKeywordsSet.add(w));
       }
     }
   };
 
-  checkMatch(modules, "module");
-  checkMatch(routes, "route");
-  checkMatch(functions, "function");
-  checkMatch(variables, "variable");
-  checkMatch(classes, "class");
-  checkMatch(priorityFiles, "file");
+  extractAndNormalize(context.modules);
+  extractAndNormalize(context.routes);
+  if (context.codeInsights) {
+    extractAndNormalize(context.codeInsights.functions);
+    extractAndNormalize(context.codeInsights.variables);
+    extractAndNormalize(context.codeInsights.classes);
+  }
+  extractAndNormalize(context.priorityFiles);
 
-  // Deduplicate matched features
-  const uniqueFeatures = [];
-  const seen = new Set();
-  for (const f of matchedFeatures) {
-    const key = `${f.type}:${f.name}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueFeatures.push(f);
+  const contextKeywords = Array.from(contextKeywordsSet);
+  
+  // Determine matches against the expanded prompt keywords
+  const matchedExpandedKeywords = Array.from(promptKeywords).filter(k => contextKeywordsSet.has(k));
+  
+  // We calculate score based on how many of the base prompt keywords were matched (either directly or via synonym)
+  let matchedBaseCount = 0;
+  const matchedKeywords = [];
+  
+  for (const word of basePromptKeywords) {
+    let isMatched = false;
+    
+    // Check if word itself is in context
+    if (contextKeywordsSet.has(word)) {
+      isMatched = true;
+      matchedKeywords.push(word);
+    } else {
+      // Check if any of its synonyms are in context
+      let hasSynonymMatch = false;
+      for (const [key, syns] of Object.entries(SYNONYMS)) {
+        if (word === key) {
+          hasSynonymMatch = syns.some(s => contextKeywordsSet.has(s));
+        } else if (syns.includes(word)) {
+          hasSynonymMatch = contextKeywordsSet.has(key) || syns.some(s => contextKeywordsSet.has(s));
+        }
+      }
+      if (hasSynonymMatch) {
+        isMatched = true;
+        matchedKeywords.push(word);
+      }
+    }
+    
+    if (isMatched) {
+      matchedBaseCount++;
     }
   }
 
+  // Deduplicate matchedKeywords
+  const uniqueMatchedKeywords = Array.from(new Set(matchedKeywords));
+
+  const score = matchedBaseCount / basePromptKeywords.length;
+  const finalScore = Math.min(score, 1);
+
   let matchType = "none";
-  if (confidence > 0 && confidence < 40) {
-    matchType = "partial";
-  } else if (confidence >= 40) {
+  if (finalScore >= 0.6) {
     matchType = "strong";
+  } else if (finalScore >= 0.3) {
+    matchType = "partial";
   }
+  
+  // Suggestions: pick up to 5 closest matches or just some top context keywords
+  const suggestions = contextKeywords.slice(0, 5);
 
   return {
     matchType,
-    matchedFeatures: uniqueFeatures,
-    confidence: Math.min(confidence, 100),
+    score: finalScore,
+    matchedKeywords: uniqueMatchedKeywords,
+    promptKeywords: basePromptKeywords,
+    contextKeywords,
+    suggestions
   };
 }
 
 /**
  * Validates the AI response to ensure it only includes known features
  * @param {object[]} testCases 
- * @param {object} context 
- * @returns {object} { isValid: boolean, unknownFeatures: string[] }
+ * @param {string[]} allowedFeatures 
+ * @returns {object} { isValid: boolean, decision: string, detectedTerms: string[], invalidTerms: string[] }
  */
-export function validateResponseAgainstContext(testCases, context) {
-  const allowedFeatures = new Set();
-  const addAllowed = (list) => {
-    if (!Array.isArray(list)) return;
-    for (const item of list) {
-      const name = typeof item === "string" ? item : (item.name || "");
-      if (name) allowedFeatures.add(name.toLowerCase());
-    }
-  };
-
-  addAllowed(context.modules);
-  addAllowed(context.routes);
-  if (context.codeInsights) {
-    addAllowed(context.codeInsights.functions);
-    addAllowed(context.codeInsights.variables);
-    addAllowed(context.codeInsights.classes);
+export function validateAIOutput(testCases, allowedFeatures) {
+  if (!Array.isArray(allowedFeatures) || allowedFeatures.length === 0) {
+    return { isValid: true, decision: "accepted", detectedTerms: [], invalidTerms: [] };
   }
 
-  // If we have no context, we can't restrict it
-  if (allowedFeatures.size === 0) {
-    return { isValid: true, unknownFeatures: [] };
-  }
-
+  const allowedSet = new Set(allowedFeatures.map(f => f.toLowerCase()));
   const unknownFeatures = new Set();
+  const detectedTerms = new Set();
 
   for (const tc of testCases) {
-    // Check tags to ensure they map to known features (modules, routes, functions)
     const tags = Array.isArray(tc.tags) ? tc.tags : [];
     for (const tag of tags) {
       if (tag && typeof tag === "string") {
-        // We allow generic tags like "auth", "api", "edge-case", but we try to validate 
-        // if they are hallucinating specific module/function names
-        const tagLower = tag.toLowerCase();
-        const isGeneric = ["auth", "api", "ui", "edge-case", "happy-path", "error-handling"].includes(tagLower);
+        const tagLower = tag.toLowerCase().trim();
+        detectedTerms.add(tagLower);
         
-        if (!isGeneric && !allowedFeatures.has(tagLower)) {
-          // This tag is not a generic tag and not found in our context
-          unknownFeatures.add(tag);
+        const isGeneric = ["auth", "api", "ui", "edge-case", "happy-path", "error-handling", "backend", "frontend", "database"].includes(tagLower);
+        
+        if (!isGeneric) {
+          let isKnown = false;
+          for (const allowed of allowedSet) {
+             if (tagLower.includes(allowed) || allowed.includes(tagLower)) {
+                isKnown = true;
+                break;
+             }
+          }
+          
+          if (!isKnown) {
+             let hasSynonym = false;
+             for (const [key, syns] of Object.entries(SYNONYMS)) {
+               if (tagLower === key && syns.some(s => allowedSet.has(s))) hasSynonym = true;
+               if (syns.includes(tagLower) && (allowedSet.has(key) || syns.some(s => allowedSet.has(s)))) hasSynonym = true;
+             }
+             if (!hasSynonym) {
+               unknownFeatures.add(tag);
+             }
+          }
         }
       }
     }
   }
 
+  const invalidTerms = Array.from(unknownFeatures);
+  const decision = invalidTerms.length > 0 ? "warning" : "accepted";
+
   return {
-    isValid: unknownFeatures.size === 0,
-    unknownFeatures: Array.from(unknownFeatures)
+    isValid: true, // Soft validation -> don't hard reject
+    decision,
+    detectedTerms: Array.from(detectedTerms),
+    invalidTerms
   };
 }
