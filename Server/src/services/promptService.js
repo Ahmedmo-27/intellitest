@@ -49,9 +49,9 @@ export function generateTestCasesPrompt(projectMap, matchResult = null) {
   // Prompt Enforcement Layer
   let enforcementCtx = "";
   if (matchResult && matchResult.matchType === "partial") {
-    enforcementCtx = `\nWARNING: The tester's request only partially matched the codebase. STRICTLY LIMIT your generated test cases to the matched features: ${JSON.stringify(matchResult.matchedFeatures)}. Do not invent features not listed here. If unsure, state that the feature is not found.\n`;
+    enforcementCtx = `\nWARNING: The tester's request only partially matched the codebase. You MAY infer behavior from routes and modules, but DO NOT invent unrelated systems. If functions are missing, use file-level understanding.\n`;
   } else {
-    enforcementCtx = `\nSTRICT REQUIREMENT: Only use provided context. Do not invent features. Use real function and variable names from the CODE INSIGHTS. If unsure about a feature, say it is not found.\n`;
+    enforcementCtx = `\nSTRICT REQUIREMENT: Use project context as your primary source. You MAY infer behavior from routes and modules, but DO NOT invent unrelated systems. If functions are missing, use file-level understanding.\n`;
   }
 
   const testerAsk =

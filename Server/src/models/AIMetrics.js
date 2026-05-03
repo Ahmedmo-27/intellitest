@@ -9,7 +9,7 @@ const { Schema, model } = mongoose;
 
 const AIMetricsSchema = new Schema(
   {
-    userId:       { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    userId:       { type: Schema.Types.ObjectId, ref: "User", required: false, index: true },
     projectId:    { type: String, required: true, index: true },
     generationId: { type: Schema.Types.ObjectId, ref: "AIGeneration", index: true },
     latencyMs:    { type: Number, required: true },

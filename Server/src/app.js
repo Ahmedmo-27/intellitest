@@ -12,7 +12,7 @@ import inteliteRoutes from "./routes/inteliteRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import { logger }     from "./utils/logger.js";
 import { rateLimiter } from "./middleware/rateLimiter.js";
-import { authMiddleware } from "./middleware/authMiddleware.js";
+import { authMiddleware, optionalAuthMiddleware } from "./middleware/authMiddleware.js";
 
 // ── CORS ───────────────────────────────────────────────────────────────────────
 
@@ -64,7 +64,8 @@ export function createApp() {
 
   // ── API routes ───────────────────────────────────────────────────────────
   app.use("/auth", authRoutes);
-  app.use("/", authMiddleware, inteliteRoutes);
+  // Use optional auth for public API routes so guests can access the service.
+  app.use("/", optionalAuthMiddleware, inteliteRoutes);
 
   // ── 404 ──────────────────────────────────────────────────────────────────
   app.use((_req, res) => {

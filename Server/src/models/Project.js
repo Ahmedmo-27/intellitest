@@ -9,7 +9,7 @@ const { Schema, model } = mongoose;
 
 const ProjectSchema = new Schema(
   {
-    userId:    { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    userId:    { type: Schema.Types.ObjectId, ref: "User", required: false, index: true },
     projectId: { type: String, required: true, index: true },
     name:      { type: String, required: true, trim: true },
     type:      { type: String, default: "unknown" },         // e.g. "web", "api", "cli"
