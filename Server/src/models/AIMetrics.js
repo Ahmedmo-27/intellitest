@@ -9,6 +9,7 @@ const { Schema, model } = mongoose;
 
 const AIMetricsSchema = new Schema(
   {
+    userId:       { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     projectId:    { type: String, required: true, index: true },
     generationId: { type: Schema.Types.ObjectId, ref: "AIGeneration", index: true },
     latencyMs:    { type: Number, required: true },
@@ -18,5 +19,7 @@ const AIMetricsSchema = new Schema(
   },
   { timestamps: true }
 );
+
+AIMetricsSchema.index({ userId: 1, projectId: 1, createdAt: -1 });
 
 export const AIMetrics = model("AIMetrics", AIMetricsSchema);
