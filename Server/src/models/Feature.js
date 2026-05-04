@@ -5,27 +5,28 @@
 
 import mongoose from "mongoose";
 
-const { Schema, model } = mongoose;
+const FeatureSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  normalizedName: { type: String, required: true },
 
-const FeatureSchema = new Schema(
-  {
-    projectId:   { type: String, required: true, index: true },
-    name:        { type: String, required: true, trim: true },
-    description: { type: String, default: "" },
-
-    // 0–100 rolling score (updated after each AI generation)
-    testScore: { type: Number, min: 0, max: 100, default: 0 },
-
-    metrics: {
-      totalTests:  { type: Number, default: 0 },
-      passedTests: { type: Number, default: 0 },
-      failedTests: { type: Number, default: 0 },
-      coverage:    { type: Number, min: 0, max: 100, default: 0 },
-    },
+  type: {
+    type: String,
+    enum: ["ui", "backend", "api", "service"],
+    default: "ui"
   },
-  { timestamps: true }
-);
 
-FeatureSchema.index({ projectId: 1, name: 1 }, { unique: true });
+  importanceScore: { type: Number, default: 0.5 },
 
-export const Feature = model("Feature", FeatureSchema);
+  files: [{ type: String }],
+  synonyms: [{ type: String }],
+
+  projectId: { type: String, required: true },
+
+  createdAt: { type: Date, default: Date.now }
+});
+
+// Indexing for deduplication and performance
+FeatureSchema.index({ normalizedName: 1, projectId: 1 }, { unique: true });
+
+export const Feature = mongoose.model("Feature", FeatureSchema);
+export default Feature;

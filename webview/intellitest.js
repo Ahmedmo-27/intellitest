@@ -165,7 +165,7 @@ function renderCodeInsights(files) {
 
 function renderTable(testCases) {
 	if (!Array.isArray(testCases) || testCases.length === 0) {
-		previewBody.innerHTML = '<tr><td colspan="7" class="empty-row">No test cases generated yet.</td></tr>';
+		previewBody.innerHTML = '<tr><td colspan="8" class="empty-row">No test cases generated yet.</td></tr>';
 		hasGeneratedRows = false;
 		updateExportButton();
 		return;
@@ -181,6 +181,7 @@ function renderTable(testCases) {
 				<td>${escapeHtml(testCase.steps)}</td>
 				<td>${escapeHtml(testCase.expectedResult)}</td>
 				<td>${escapeHtml(testCase.priority)}</td>
+				<td>${escapeHtml(testCase.comments)}</td>
 			</tr>
 		`;
 	}).join('');

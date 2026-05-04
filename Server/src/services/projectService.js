@@ -17,6 +17,8 @@ import { Message }        from "../models/Message.js";
 import { AIGeneration }   from "../models/AIGeneration.js";
 import { AIMetrics }      from "../models/AIMetrics.js";
 import { Feature }        from "../models/Feature.js";
+import { FeatureRelationship } from "../models/FeatureRelationship.js";
+import { FeatureCoverage }     from "../models/FeatureCoverage.js";
 import { logger }         from "../utils/logger.js";
 import { unionArrays }    from "../utils/helpers.js";
 
@@ -235,28 +237,66 @@ export async function loadFeatures(userId, projectId) {
 }
 
 /**
- * Bulk-upsert features extracted from a set of test cases.
- * Each feature is found-or-created by (projectId, name) and its
- * totalTests counter incremented atomically.
- *
+ * Bulk-upsert extracted features from context, ignoring totalTests.
+ * @param {string} userId
  * @param {string} projectId
- * @param {Array<{ name: string, description?: string, testScore?: number }>} features
- * @returns {Promise<void>}
+ * @param {Array<object>} features
  */
-export async function upsertFeatures(userId, projectId, features) {
-  if (!Array.isArray(features) || features.length === 0) return;
+export async function syncFeatureIntelligence(userId, projectId, features, relationships) {
+  if (features && features.length > 0) {
+    const ops = features.map(f => ({
+      updateOne: {
+        filter: { userId, projectId, normalizedName: f.normalizedName },
+        update: {
+          $set: {
+            name: f.name,
+            normalizedName: f.normalizedName,
+            files: f.files,
+            type: "backend" // or derive type
+          }
+        },
+        upsert: true
+      }
+    }));
+    await Feature.bulkWrite(ops, { ordered: false });
+  }
 
-  const ops = features.map((f) => ({
+  if (relationships && relationships.length > 0) {
+    const relOps = relationships.map(r => ({
+      updateOne: {
+        filter: { userId, projectId, feature: r.feature, relatedFeature: r.relatedFeature },
+        update: {
+          $set: {
+            relationType: r.relationType
+          }
+        },
+        upsert: true
+      }
+    }));
+    await FeatureRelationship.bulkWrite(relOps, { ordered: false });
+  }
+}
+
+export async function loadFeatureCoverage(userId, projectId, features) {
+  if (!features || features.length === 0) return [];
+  return FeatureCoverage.find({ userId, projectId, feature: { $in: features } }).lean();
+}
+
+export async function upsertFeatureCoverage(userId, projectId, coverages) {
+  if (!coverages || coverages.length === 0) return;
+
+  const ops = coverages.map(c => ({
     updateOne: {
-      filter: { userId, projectId, name: f.name },
+      filter: { userId, projectId, feature: c.feature },
       update: {
-        $setOnInsert: { userId, projectId, name: f.name, description: f.description ?? "" },
-        $inc:         { "metrics.totalTests": 1 },
-        $set:         { testScore: Math.min(100, f.testScore ?? 0) },
+        $set: {
+          testCaseCount: c.testCaseCount,
+          estimatedCoverage: c.estimatedCoverage,
+          missingAreas: c.missingAreas
+        }
       },
-      upsert: true,
-    },
+      upsert: true
+    }
   }));
-
-  await Feature.bulkWrite(ops, { ordered: false });
+  await FeatureCoverage.bulkWrite(ops, { ordered: false });
 }
