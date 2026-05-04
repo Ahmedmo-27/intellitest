@@ -20,6 +20,9 @@ import * as promptService  from "../services/promptService.js";
 import * as projectService from "../services/projectService.js";
 import * as contextService from "../services/contextService.js";
 import * as guardrailService from "../services/guardrailService.js";
+import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
+import { mapPromptToFeatures } from "../services/featureMappingEngine.js";
+import { calculateCoverage } from "../services/coverageEngine.js";
 import * as formatter      from "../utils/formatter.js";
 import { logTerminalSection, logger } from "../utils/logger.js";
 import { complete }        from "../ai/aiService.js";
@@ -80,55 +83,57 @@ export async function generate(req, res) {
     // ── Step 2.1: Clean Context ───────────────────────────────────────────────
     const cleanedMap = contextService.cleanContext(enrichedMap);
 
-    // ── Step 2.2: Extract Features ────────────────────────────────────────────
-    const extractedObj = contextService.extractFeatures(cleanedMap);
-    const allowedFeatures = extractedObj.features;
-
-    // ── Step 2.5: Guardrail Decision Layer ────────────────────────────────────
-    const matchResult = guardrailService.matchPromptToContext(userPrompt, cleanedMap);
+    // ── Step 2.2: Extract Features & Sync to MongoDB ─────────────────────────
+    const extractedFeatures = extractFeatures(cleanedMap, projectId);
+    const relationships = buildFeatureRelationships(extractedFeatures, projectId);
     
-    // NEW: Detect missing features
-    const missingFeatures = guardrailService.detectMissingFeatures(matchResult.promptKeywords, allowedFeatures);
+    if (userId) {
+      await projectService.syncFeatureIntelligence(userId, projectId, extractedFeatures, relationships);
+    }
+    const allowedFeatures = extractedFeatures.map(f => f.normalizedName);
 
+    // ── Step 2.5: Guardrail Decision Layer (Feature Intelligence) ─────────────
+    const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, relationships);
+    
     let decision = "allowed";
     if (userPrompt.trim().length > 0) {
-      if (matchResult.matchType === "none" && missingFeatures.length > 0) {
-        decision = "blocked";
-      } else if (matchResult.matchType === "partial") {
-        decision = "partial";
-      } else if (matchResult.matchType === "none") {
-        decision = "partial";
+      decision = matchResult.matchType;
+    }
+
+    let coverageMap = {};
+    if (userId && matchResult.matchedFeatures.length > 0) {
+      const coverages = await projectService.loadFeatureCoverage(userId, projectId, matchResult.matchedFeatures);
+      for (const c of coverages) {
+        coverageMap[c.feature] = c;
       }
     }
 
-    logger.info("guardrail_check", {
-      event: "guardrail_check",
-      promptKeywords: matchResult.promptKeywords || [],
-      features: allowedFeatures,
-      missingFeatures: missingFeatures,
-      score: matchResult.score || 0,
-      matchType: matchResult.matchType,
-      decision
+    logger.info("feature_mapping", {
+      event: "feature_mapping",
+      prompt: userPrompt,
+      extractedFeatures: allowedFeatures,
+      matchedFeatures: matchResult.matchedFeatures,
+      relatedFeatures: matchResult.relatedFeatures,
+      coverage: coverageMap,
+      confidence: matchResult.confidence,
+      decision: decision === "none" ? "fallback" : decision
     });
 
-    if (decision === "blocked") {
-      const missingStr = missingFeatures.join(", ");
-      return res.status(400).json({
-        decision: "blocked",
-        reason: "Requested feature does not exist in project",
-        message: `The prompt references features that don't exist in your codebase: ${missingStr}.`,
-        missingFeatures: missingFeatures,
-        missing: missingFeatures,
-        suggestions: matchResult.suggestions || [],
-        warning: "Feature not found in system",
-        action: "adjust_prompt"
+    // ❌ REMOVED HARD BLOCKING, replaced with Fallback
+    if (decision === "none" && userPrompt.trim().length > 0) {
+      return res.json({
+        warning: "Feature not found",
+        suggestions: matchResult.relatedFeatures.length > 0 ? matchResult.relatedFeatures.slice(0, 2) : ["product", "collection"],
+        closestFlows: matchResult.closestFlows,
+        action: "fallback",
+        features: []
       });
     }
 
     // ── Step 3: Build prompt ──────────────────────────────────────────────────
     let restrictInstruction = "";
     if (decision === "partial") {
-      restrictInstruction = `Ignore non-existent features like: ${missingFeatures.join(", ")}. Focus only on available system features.`;
+      restrictInstruction = `Ignore non-existent features. Focus only on available matched features: ${matchResult.matchedFeatures.join(", ")}.`;
     }
     
     // Pass matchResult so the prompt enforcement layer can limit scope if needed
@@ -209,10 +214,27 @@ export async function generate(req, res) {
       ]);
     }
 
-    // ── Step 8: Upsert features ───────────────────────────────────────────────
-    if (userId) {
-      const features = contextService.extractTestFeatures(testCases);
-      await projectService.upsertFeatures(userId, projectId, features);
+    // ── Step 8: Upsert coverage & returned features ───────────────────────────
+    const returnedFeatures = [];
+    if (userId && testCases.length > 0) {
+      const coverageResults = matchResult.matchedFeatures.map(f => calculateCoverage(f, testCases));
+      await projectService.upsertFeatureCoverage(userId, projectId, coverageResults);
+
+      for (const cov of coverageResults) {
+        const featureObj = extractedFeatures.find(f => f.normalizedName === cov.feature);
+        returnedFeatures.push({
+          name: cov.feature,
+          files: featureObj ? featureObj.files : [],
+          relatedFeatures: relationships.filter(r => r.feature === cov.feature).map(r => r.relatedFeature),
+          coverage: cov.estimatedCoverage,
+          confidence: matchResult.confidence,
+          missingTestAreas: cov.missingAreas
+        });
+      }
+      
+      // Kept for backward compatibility if needed:
+      const oldFeatures = contextService.extractTestFeatures(testCases);
+      await projectService.upsertFeatures(userId, projectId, oldFeatures);
     }
 
     // ── Step 9: Respond ───────────────────────────────────────────────────────
@@ -221,13 +243,14 @@ export async function generate(req, res) {
       scripts:     null,
       insights:    contextService.insightsToArray(enrichedMap.codeInsights),
       suggestions: [],
+      features:    returnedFeatures,
       meta: {
         projectId,
         latencyMs,
         retryCount,
         contextVersion: context?.contextVersion ?? 1,
         fallback:       aiStatus === "fallback",
-        matchConfidence: matchResult.score
+        matchConfidence: matchResult.confidence
       },
     };
 
