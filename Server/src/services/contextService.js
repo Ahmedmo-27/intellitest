@@ -132,9 +132,9 @@ export function extractFeatures(projectMap) {
       // Remove numbers
       name = name.replace(/[0-9]+/g, " ");
       // Remove generic architectural terms
-      name = name.replace(/\b(controller|page|route|module|service|api|component|model|view)\b/g, " ");
+      name = name.replace(/\b(controller|page|route|module|service|api|component|model|view|router)\b/g, " ");
       
-      const words = name.split(/[\s\-_]+/).filter(w => w.length > 2);
+      const words = name.split(/[\s\-_\/\\]+/).filter(w => w.length > 2);
       const ignoreList = new Set(["config", "index", "app", "server", "main", "pag", "cas", "xlsx", "csv", "json", "xml"]);
       
       for (const w of words) {
@@ -145,13 +145,13 @@ export function extractFeatures(projectMap) {
     }
   };
 
+  // Extract REAL features from routes (highest priority), controllers, and file names
   if (projectMap.routes) processTokens(projectMap.routes);
+  if (projectMap.controllers) processTokens(projectMap.controllers);
   if (projectMap.modules) processTokens(projectMap.modules);
   if (projectMap.priorityFiles) processTokens(projectMap.priorityFiles);
-  if (projectMap.codeInsights) {
-    processTokens(projectMap.codeInsights.functions);
-    processTokens(projectMap.codeInsights.classes);
-  }
+  
+  // Note: explicitly DO NOT rely on "type" field
   
   return { features: Array.from(featureSet) };
 }

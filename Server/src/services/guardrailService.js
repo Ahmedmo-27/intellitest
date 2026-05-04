@@ -173,6 +173,32 @@ export function matchPromptToContext(prompt, context) {
 }
 
 /**
+ * Detect missing features from prompt
+ */
+export function detectMissingFeatures(promptKeywords, features) {
+  const missing = [];
+  const featureSet = new Set(features.map(f => f.toLowerCase()));
+  const IGNORE_TERMS_SET = new Set([
+    "create", "creation", "add", "adding",
+    "update", "delete", "flow", "process"
+  ]);
+  
+  for (const keyword of promptKeywords) {
+    if (!featureSet.has(keyword) && !IGNORE_TERMS_SET.has(keyword)) {
+      let hasSynonym = false;
+      for (const [key, syns] of Object.entries(SYNONYMS)) {
+        if (keyword === key && syns.some(s => featureSet.has(s))) hasSynonym = true;
+        if (syns.includes(keyword) && (featureSet.has(key) || syns.some(s => featureSet.has(s)))) hasSynonym = true;
+      }
+      if (!hasSynonym) {
+        missing.push(keyword);
+      }
+    }
+  }
+  return missing;
+}
+
+/**
  * Validates the AI response to ensure it only includes known features
  * @param {object[]} testCases 
  * @param {string[]} allowedFeatures 
@@ -186,6 +212,11 @@ export function validateAIOutput(testCases, allowedFeatures) {
   const allowedSet = new Set(allowedFeatures.map(f => f.toLowerCase()));
   const unknownFeatures = new Set();
   const detectedTerms = new Set();
+  
+  const IGNORE_TERMS = new Set([
+    "create", "creation", "add", "adding",
+    "update", "delete", "flow", "process"
+  ]);
 
   for (const tc of testCases) {
     const tags = Array.isArray(tc.tags) ? tc.tags : [];
@@ -196,7 +227,7 @@ export function validateAIOutput(testCases, allowedFeatures) {
         
         const isGeneric = ["auth", "api", "ui", "edge-case", "happy-path", "error-handling", "backend", "frontend", "database"].includes(tagLower);
         
-        if (!isGeneric) {
+        if (!isGeneric && !IGNORE_TERMS.has(tagLower)) {
           let isKnown = false;
           for (const allowed of allowedSet) {
              if (tagLower.includes(allowed) || allowed.includes(tagLower)) {
