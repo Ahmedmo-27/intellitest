@@ -27,7 +27,7 @@ function priorityFilesBlock(map) {
 /**
  * High-level manual test cases with optional priority and tags (bonus).
  */
-export function generateTestCasesPrompt(projectMap, matchResult = null) {
+export function generateTestCasesPrompt(projectMap, matchResult = null, restrictInstruction = "") {
   const ctx = projectContextBlock(projectMap);
   const priorityCtx = priorityFilesBlock(projectMap);
   
@@ -49,7 +49,7 @@ export function generateTestCasesPrompt(projectMap, matchResult = null) {
   // Prompt Enforcement Layer
   let enforcementCtx = "";
   if (matchResult && matchResult.matchType === "partial") {
-    enforcementCtx = `\nWARNING: The tester's request only partially matched the codebase. You MAY infer behavior from routes and modules, but DO NOT invent unrelated systems. If functions are missing, use file-level understanding.\n`;
+    enforcementCtx = `\nWARNING: The tester's request only partially matched the codebase. You MAY infer behavior from routes and modules, but DO NOT invent unrelated systems. If functions are missing, use file-level understanding.\n${restrictInstruction}\n`;
   } else {
     enforcementCtx = `\nSTRICT REQUIREMENT: Use project context as your primary source. You MAY infer behavior from routes and modules, but DO NOT invent unrelated systems. If functions are missing, use file-level understanding.\n`;
   }

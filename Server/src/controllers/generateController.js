@@ -86,12 +86,17 @@ export async function generate(req, res) {
 
     // ── Step 2.5: Guardrail Decision Layer ────────────────────────────────────
     const matchResult = guardrailService.matchPromptToContext(userPrompt, cleanedMap);
+    
+    // NEW: Detect missing features
+    const missingFeatures = guardrailService.detectMissingFeatures(matchResult.promptKeywords, allowedFeatures);
 
     let decision = "allowed";
     if (userPrompt.trim().length > 0) {
-      if (matchResult.matchType === "none") {
-        decision = "rejected";
+      if (matchResult.matchType === "none" && missingFeatures.length > 0) {
+        decision = "blocked";
       } else if (matchResult.matchType === "partial") {
+        decision = "partial";
+      } else if (matchResult.matchType === "none") {
         decision = "partial";
       }
     }
@@ -99,17 +104,35 @@ export async function generate(req, res) {
     logger.info("guardrail_check", {
       event: "guardrail_check",
       promptKeywords: matchResult.promptKeywords || [],
-      contextKeywords: matchResult.contextKeywords || [],
+      features: allowedFeatures,
+      missingFeatures: missingFeatures,
       score: matchResult.score || 0,
       matchType: matchResult.matchType,
       decision
     });
 
-    // We no longer early-reject. We let it proceed with a soft warning later.
+    if (decision === "blocked") {
+      const missingStr = missingFeatures.join(", ");
+      return res.status(400).json({
+        decision: "blocked",
+        reason: "Requested feature does not exist in project",
+        message: `The prompt references features that don't exist in your codebase: ${missingStr}.`,
+        missingFeatures: missingFeatures,
+        missing: missingFeatures,
+        suggestions: matchResult.suggestions || [],
+        warning: "Feature not found in system",
+        action: "adjust_prompt"
+      });
+    }
 
     // ── Step 3: Build prompt ──────────────────────────────────────────────────
+    let restrictInstruction = "";
+    if (decision === "partial") {
+      restrictInstruction = `Ignore non-existent features like: ${missingFeatures.join(", ")}. Focus only on available system features.`;
+    }
+    
     // Pass matchResult so the prompt enforcement layer can limit scope if needed
-    const aiPrompt = promptService.generateTestCasesPrompt(cleanedMap, matchResult);
+    const aiPrompt = promptService.generateTestCasesPrompt(cleanedMap, matchResult, restrictInstruction);
 
     // ── Step 4: AI call with tracking validator ───────────────────────────────
     const validator = makeQuickValidator(TEST_CASES_SCHEMA);
@@ -132,10 +155,8 @@ export async function generate(req, res) {
            decision: validationResult.decision 
          });
          
-         if (callCount <= 2) {
-             return false;
-         }
          aiOutputWarning = `The AI included unknown domain features: ${validationResult.invalidTerms.join(", ")}`;
+         return false; // Force retry. If maxRetries reached, fallback.
       } else {
          aiOutputWarning = null;
       }
@@ -145,7 +166,7 @@ export async function generate(req, res) {
     rawAiOutput = await complete(aiPrompt, { 
       validator: trackingValidator,
       correctionPrompt: `The previous response hallucinated features. STRICTLY limit your tags and test targets to these known features: [${allowedFeatures.join(", ")}].\n\n`,
-      maxRetries: 2
+      maxRetries: 1 // Limit retries to 1
     });
     retryCount  = Math.max(0, callCount - 1); // attempt 0 = first call
 
