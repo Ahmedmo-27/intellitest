@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import ts from 'typescript';
-import { listProjectRelativePaths } from './codebaseContext';
-import type { CodeInsightClass, CodeInsightFile, CodeInsightsPayload } from '../types/codeInsights';
+import { listProjectRelativePaths } from './codebaseContext.js';
+import type { CodeInsightClass, CodeInsightFile, CodeInsightsPayload } from '../types/codeInsights.js';
 
 const SUPPORTED_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const MAX_FILE_SIZE_BYTES = 200 * 1024;
