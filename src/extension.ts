@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { IntelliTestViewProvider } from './providers/IntelliTestViewProvider';
-import { detectRecommendedTestingFramework } from './services/testingFramework';
-import { detectTechStack } from './services/techStack';
+import { IntelliTestViewProvider } from './providers/IntelliTestViewProvider.js';
+import { detectRecommendedTestingFramework } from './services/testingFramework.js';
+import { detectTechStack } from './services/techStack.js';
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log('IntelliTest extension activated');
@@ -24,7 +24,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(
 			IntelliTestViewProvider.viewType,
-			new IntelliTestViewProvider(context.extensionUri, detectedStack, recommendedTestingFramework)
+			// Pass context so the provider can persist projectId in workspaceState
+			new IntelliTestViewProvider(context, context.extensionUri, detectedStack, recommendedTestingFramework)
 		)
 	);
 }

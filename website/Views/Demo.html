@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Try it Yourself - IntelliTest</title>
+    <link rel="stylesheet" href="/Landing/HeroPage.css">
+    <link rel="stylesheet" href="Demo.css">
+    <link rel="stylesheet" href="/Nav/Nav.css">
+    <script defer src="/Nav/Nav.js"></script>
+</head>
+
+<body class="hero-home">
+    <div data-nav-placeholder></div>
+
+    <!-- Main Content -->
+    <div class="demo-container">
+        <h1>Try IntelliTest <span>Yourself.</span></h1>
+        <p class="subtitle">Generate test cases for your code using AI</p>
+
+        <form id="demoForm" class="demo-form">
+            <!-- Step 1: Select Language and Framework -->
+            <div class="form-section">
+                <h2>Step 1: Select Your Stack</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="language">Programming Language:</label>
+                        <select id="language" required>
+                            <option value="">-- Select Language --</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="python">Python</option>
+                            <option value="java">Java</option>
+                            <option value="typescript">TypeScript</option>
+                            <option value="csharp">C#</option>
+                            <option value="go">Go</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="framework">Testing Framework:</label>
+                        <select id="framework" required>
+                            <option value="">-- Select Framework --</option>
+                            <option value="jest">Jest</option>
+                            <option value="mocha">Mocha</option>
+                            <option value="vitest">Vitest</option>
+                            <option value="pytest">Pytest</option>
+                            <option value="junit">JUnit</option>
+                            <option value="unittest">Unittest</option>
+                            <option value="xunit">xUnit</option>
+                            <option value="testng">TestNG</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Input Code -->
+            <div class="form-section">
+                <h2>Step 2: Paste Your Function</h2>
+                <div class="form-group">
+                    <label for="codeInput">Function Code:</label>
+                    <textarea id="codeInput" placeholder="Paste your function code here..." rows="8" required>
+                    </textarea>
+                </div>
+            </div>
+
+            <!-- Step 3: Enter Prompt -->
+            <div class="form-section">
+                <h2>Step 3: Describe What to Test</h2>
+                <div class="form-group">
+                    <label for="promptInput">Test Prompt:</label>
+                    <textarea id="promptInput"
+                        placeholder="e.g., Test edge cases like null values, negative numbers, and empty strings. Include boundary testing."
+                        rows="4" required>
+                    </textarea>
+                </div>
+            </div>
+
+            <!-- Buttons -->
+            <div class="button-group">
+                <button type="button" id="generateTestCasesBtn" class="btn btn-primary">
+                    Generate Test Cases
+                </button>
+                <button type="button" id="generateTestsBtn" class="btn btn-secondary" disabled>
+                    Generate Test Code
+                </button>
+            </div>
+        </form>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="results-section" style="display: none;">
+            <h2>Results</h2>
+
+            <!-- Test Cases Display -->
+            <div id="testCasesResult" class="result-box" style="display: none;">
+                <h3>Generated Test Cases</h3>
+                <div id="testCasesOutput" class="output-content"></div>
+            </div>
+
+            <!-- Test Code Display -->
+            <div id="testCodeResult" class="result-box" style="display: none;">
+                <h3>Generated Test Code</h3>
+                <div id="testCodeOutput" class="output-content"></div>
+                <button type="button" class="btn btn-secondary" id="copyCodeBtn">Copy Code</button>
+            </div>
+
+            <!-- Error Display -->
+            <div id="errorResult" class="result-box error" style="display: none;">
+                <h3>Error</h3>
+                <p id="errorOutput"></p>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>Processing your request...</p>
+        </div>
+    </div>
+
+    <script type="module" src="Demo.js"></script>
+</body>
+
+</html>
