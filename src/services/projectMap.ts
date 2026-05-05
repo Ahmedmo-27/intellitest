@@ -1,5 +1,5 @@
-import { listProjectRelativePaths } from './codebaseContext';
-import { inferWebProjectCategory } from './projectCategory';
+import { listProjectRelativePaths } from './codebaseContext.js';
+import { inferWebProjectCategory } from './projectCategory.js';
 
 function inferLanguage(detectedStack: string): string {
 	const s = detectedStack.toLowerCase();
@@ -38,15 +38,15 @@ export function buildProjectMap(
 			? [
 					...new Set(
 						paths
-							.map(p => p.split(/[/\\]/)[0])
-							.filter(seg => seg.length > 0 && !seg.startsWith('.'))
+							.map((p: string) => p.split(/[/\\]/)[0])
+							.filter((seg: string) => seg.length > 0 && !seg.startsWith('.'))
 					)
 				].slice(0, 40)
 			: [];
 
 	const routeHints = paths
 		.filter(
-			p =>
+			(p: string) =>
 				/route|router|pages[/\\]|app[/\\]|api[/\\]|controller|endpoint/i.test(p) &&
 				!p.includes('node_modules')
 		)
@@ -59,7 +59,7 @@ export function buildProjectMap(
 		type: projectKind,
 		language: inferLanguage(detectedStack),
 		framework,
-		modules,
+		modules: modules as string[],
 		routes: routeHints,
 		prompt: userPrompt.trim()
 	};

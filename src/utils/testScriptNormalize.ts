@@ -1,4 +1,4 @@
-import type { TestScriptSuggestion } from '../types/testCases';
+import type { TestScriptSuggestion } from '../types/testCases.js';
 
 export type LooseScript = {
 	framework?: string;

@@ -1,5 +1,6 @@
 {
   "name": "intellitest",
+  "type": "module",
   "displayName": "intellitest",
   "description": "A VS Code extension that helps junior testers generate structured test cases by applying standard software testing techniques based on project context.",
   "version": "0.0.1",
@@ -49,7 +50,9 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "website": "node website-server.js"
+    
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -63,6 +66,7 @@
   },
   "dependencies": {
     "axios": "^1.14.0",
+    "express": "^4.21.2",
     "xlsx": "^0.18.5"
   }
 }

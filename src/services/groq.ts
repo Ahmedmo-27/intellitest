@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { GeneratedTestCases, TestCaseRow } from '../types/testCases';
+import type { GeneratedTestCases, TestCaseRow } from '../types/testCases.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';

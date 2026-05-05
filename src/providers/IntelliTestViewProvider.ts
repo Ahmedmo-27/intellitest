@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
-import { generateViaBackend } from '../services/backendClient';
-import { exportTestCasesToExcel } from '../services/excel';
-import { detectRecommendedTestingFramework } from '../services/testingFramework';
-import type { IntelliGenerationResult } from '../types/testCases';
-import { sanitizeTestFilename } from '../utils/testScriptNormalize';
-import type { WebviewMessage } from '../types/messages';
-import { getWebviewHtml } from '../webview/template';
+import { generateViaBackend } from '../services/backendClient.js';
+import { exportTestCasesToExcel } from '../services/excel.js';
+import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
+import type { IntelliGenerationResult } from '../types/testCases.js';
+import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
+import type { WebviewMessage } from '../types/messages.js';
+import { getWebviewHtml } from '../webview/template.js';
 
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',

@@ -1,6 +1,6 @@
 import axios from 'axios';
-import type { IntelliGenerationResult, TestCaseRow } from '../types/testCases';
-import { buildProjectMap } from './projectMap';
+import type { IntelliGenerationResult, TestCaseRow } from '../types/testCases.js';
+import { buildProjectMap } from './projectMap.js';
 
 type ServerTestCase = {
 	id?: string;
