@@ -1,6 +1,6 @@
-import { listProjectRelativePaths } from './codebaseContext';
-import { getCodeInsights } from './codeInsights';
-import { inferWebProjectCategory } from './projectCategory';
+import { listProjectRelativePaths } from './codebaseContext.js';
+import { getCodeInsights } from './codeInsights.js';
+import { inferWebProjectCategory } from './projectCategory.js';
 
 const MAX_INSIGHT_FILES_FOR_AI = 12;
 const MAX_FUNCTIONS_PER_FILE_FOR_AI = 4;
@@ -113,15 +113,15 @@ export async function buildProjectMap(
 			? [
 					...new Set(
 						paths
-							.map(p => p.split(/[/\\]/)[0])
-							.filter(seg => seg.length > 0 && !seg.startsWith('.'))
+							.map((p: string) => p.split(/[/\\]/)[0])
+							.filter((seg: string) => seg.length > 0 && !seg.startsWith('.'))
 					)
 				].slice(0, 40)
 			: [];
 
 	const routeHints = paths
 		.filter(
-			p =>
+			(p: string) =>
 				/route|router|pages[/\\]|app[/\\]|api[/\\]|controller|endpoint/i.test(p) &&
 				!p.includes('node_modules')
 		)
@@ -146,7 +146,7 @@ export async function buildProjectMap(
 		type: projectKind,
 		language: inferLanguage(detectedStack),
 		framework,
-		modules,
+		modules: modules as string[],
 		routes: routeHints,
 		codeInsights,
 		priorityFiles: priorityFilesList,

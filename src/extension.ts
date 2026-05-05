@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { IntelliTestViewProvider } from './providers/IntelliTestViewProvider';
-import { detectRecommendedTestingFramework } from './services/testingFramework';
-import { detectTechStack } from './services/techStack';
+import { IntelliTestViewProvider } from './providers/IntelliTestViewProvider.js';
+import { detectRecommendedTestingFramework } from './services/testingFramework.js';
+import { detectTechStack } from './services/techStack.js';
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log('IntelliTest extension activated');

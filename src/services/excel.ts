@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import * as XLSX from 'xlsx';
-import type { TestCaseRow } from '../types/testCases';
+import type { TestCaseRow } from '../types/testCases.js';
 
 function buildTimestampedFileName(): string {
 	const now = new Date();

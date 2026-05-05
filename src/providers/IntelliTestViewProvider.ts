@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
-import { generateViaBackend, generateViaBackendV2, loadProjectSession } from '../services/backendClient';
-import { getCodeInsights } from '../services/codeInsights';
-import { exportTestCasesToExcel } from '../services/excel';
-import { detectRecommendedTestingFramework } from '../services/testingFramework';
-import type { IntelliGenerationResult } from '../types/testCases';
-import { sanitizeTestFilename } from '../utils/testScriptNormalize';
-import type { WebviewMessage } from '../types/messages';
-import { getWebviewHtml } from '../webview/template';
-import { getOrCreateProjectId } from '../utils/projectId';
+import { generateViaBackend, generateViaBackendV2, loadProjectSession } from '../services/backendClient.js';
+import { getCodeInsights } from '../services/codeInsights.js';
+import { exportTestCasesToExcel } from '../services/excel.js';
+import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
+import type { IntelliGenerationResult } from '../types/testCases.js';
+import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
+import type { WebviewMessage } from '../types/messages.js';
+import { getWebviewHtml } from '../webview/template.js';
+import { getOrCreateProjectId } from '../utils/projectId.js';
 
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
