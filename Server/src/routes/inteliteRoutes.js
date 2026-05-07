@@ -2,7 +2,7 @@ import { Router } from "express";
 
 // ── controllers ────────────────────────────────────────────────────────────────
 import * as inteliteController from "../controllers/inteliteController.js";
-import { generate }     from "../controllers/generateController.js";
+import { generate, analyzeIntent }     from "../controllers/generateController.js";
 import { initProject }  from "../controllers/projectController.js";
 
 // ── middleware ─────────────────────────────────────────────────────────────────
@@ -23,6 +23,15 @@ router.post(
   validateGenerate,
   promptFilter,
   generate
+);
+
+/**
+ * POST /analyze-intent
+ * Pre-flight check to filter context and find features before full generation
+ */
+router.post(
+  "/analyze-intent",
+  analyzeIntent
 );
 
 /**
