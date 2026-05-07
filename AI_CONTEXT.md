@@ -65,7 +65,7 @@ Backend to webview commands:
 - exportStatus
 
 ## AI Integration
-The extension uses Groq Chat Completions as an external LLM provider.
+The extension uses Hugging Face Chat Completions as an external LLM provider.
 
 Key points:
 - API transport via Axios
@@ -149,7 +149,7 @@ Additional output requirement:
 
 ## Security and Config Notes
 - Do not commit secrets
-- Use environment variable GROQ_API_KEY
+- Configure AI provider variables in `Server/.env` (from `Server/.env.example`)
 - Debug run configuration supports environment loading via [ .vscode/launch.json ](.vscode/launch.json)
 
 ## Future Extensions

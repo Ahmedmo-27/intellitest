@@ -40,7 +40,7 @@ Key files and folders:
   - Core backend view logic: prompt handling, AI generation flow, export flow, and webview messaging.
 
 - `src/services/groq.ts`
-  - AI API integration layer (Groq) and structured JSON parsing.
+  - AI API integration layer (Hugging Face) and structured JSON parsing.
 
 - `src/services/techStack.ts`
   - Detects project technology stack from workspace files.
@@ -91,7 +91,7 @@ Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webv
 2. Extension detects the project tech stack.
 3. **Codebase is scanned**: Static analysis extracts functions, classes, and variables from JS/TS files using the TypeScript Compiler API.
 4. **Code context is built**: Project structure (routes, modules), code symbols, and detected priority files are packaged into a structured payload.
-5. Request is sent to AI (Groq API) with prompt + comprehensive project context.
+5. Request is sent to AI (Hugging Face API) with prompt + comprehensive project context.
 6. AI returns structured JSON test cases.
 7. Results are displayed in the sidebar table preview with optional Excel export.
 
@@ -243,7 +243,7 @@ Sent to AI for smarter test generation
 | **codeInsights.ts** | 67-80 | `buildFunctionSignature()` - reads TypeScript types |
 | **codeInsights.ts** | 82-130 | `extractFromSourceFile()` - walks AST, combines both layers |
 | **projectMap.ts** | 60-100 | `summarizeCodeInsightsForAi()` - formats for AI |
-| **promptService.js** | Backend | Sends formatted code context to Groq LLM |
+| **promptService.js** | Backend | Sends formatted code context to Hugging Face LLM |
 
 ### What Gets Extracted (Simple)
 
@@ -305,14 +305,17 @@ function validatePassword(password, minLength) { }
 ---
 
 ## AI Integration
-- Requires `GROQ_API_KEY`.
+- Requires backend AI config in `Server/.env`.
 - Backend builds system and user prompts, requests structured JSON, and normalizes responses.
 
 ### API Key Setup
 
-Set your key before running:
+Set your key before running in `Server/.env` (based on `Server/.env.example`):
 
-- Environment variable: `GROQ_API_KEY`
+- `LLM_PROVIDER=api`
+- `API_BASE_URL=https://router.huggingface.co/v1`
+- `API_KEY=<your_hf_token>`
+- `API_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct`
 
 For local VS Code debugging, `.vscode/launch.json` can load environment variables from `.env`.
 
@@ -334,7 +337,7 @@ For local VS Code debugging, `.vscode/launch.json` can load environment variable
 ## Configuration
 
 - Required:
-  - `GROQ_API_KEY`
+  - `Server/.env` with valid `API_KEY`
 - Recommended:
   - Keep `.env` local and out of source control.
   - Ensure your debug launch configuration loads your environment values.

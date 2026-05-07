@@ -65,7 +65,7 @@ async function callOllama(prompt, signal) {
 }
 
 /**
- * Single call to an OpenAI-compatible HTTP API (Groq, OpenAI, etc.).
+ * Single call to an OpenAI-compatible HTTP API (Hugging Face, Groq, OpenAI, etc.).
  * @param {string} prompt
  * @param {AbortSignal} signal
  * @returns {Promise<string>}

@@ -1,8 +1,9 @@
 import axios from 'axios';
 import type { GeneratedTestCases, TestCaseRow } from '../types/testCases.js';
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const API_BASE_URL = process.env.API_BASE_URL?.trim() || 'https://router.huggingface.co/v1';
+const API_URL = `${API_BASE_URL.replace(/\/$/, '')}/chat/completions`;
+const API_MODEL = process.env.API_MODEL?.trim() || 'Qwen/Qwen2.5-Coder-7B-Instruct';
 const SYSTEM_PROMPT =
 	[
 		'The user prompt is the highest-priority authority.',
@@ -88,10 +89,10 @@ export async function generateTestCases(
 	detectedStack: string,
 	codebaseContext: string
 ): Promise<GeneratedTestCases> {
-	const apiKey = process.env.GROQ_API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+	const apiKey = process.env.API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
 
 	if (!apiKey) {
-		throw new Error('Missing GROQ_API_KEY environment variable.');
+		throw new Error('Missing API_KEY environment variable.');
 	}
 
 	const finalUserPrompt = [
@@ -106,25 +107,28 @@ export async function generateTestCases(
 
 	try {
 		const response = await axios.post(
-			GROQ_API_URL,
+			API_URL,
 			{
-				model: GROQ_MODEL,
+				model: API_MODEL,
 				messages: [
 					{ role: 'system', content: SYSTEM_PROMPT },
 					{ role: 'user', content: finalUserPrompt }
-				]
+				],
+				temperature: 0.2,
+				response_format: { type: 'json_object' }
 			},
 			{
 				headers: {
 					Authorization: `Bearer ${apiKey}`,
 					'Content-Type': 'application/json'
-				}
+				},
+				timeout: 60_000
 			}
 		);
 
 		const content = response.data?.choices?.[0]?.message?.content;
 		if (typeof content !== 'string' || !content.trim()) {
-			throw new Error('Groq API returned an empty response.');
+			throw new Error('Hugging Face API returned an empty response.');
 		}
 
 		const parsed = parseAiJson(content);
