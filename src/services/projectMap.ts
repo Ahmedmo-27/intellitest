@@ -105,9 +105,15 @@ function summarizeCodeInsightsForAi(
 export async function buildProjectMap(
 	workspaceRootPath: string | undefined,
 	detectedStack: string,
-	userPrompt: string
+	userPrompt: string,
+	relevantFiles?: string[]
 ): Promise<Record<string, string | string[]>> {
-	const paths = listProjectRelativePaths(workspaceRootPath, 400);
+	// If relevantFiles are provided, we ONLY map those files. 
+	// Otherwise, we do a general sweep.
+	const paths = relevantFiles !== undefined
+		? relevantFiles
+		: listProjectRelativePaths(workspaceRootPath, 400);
+		
 	const modules =
 		paths.length > 0
 			? [
@@ -136,7 +142,8 @@ export async function buildProjectMap(
 
 	let codeInsights: string[] = [];
 	try {
-		const insights = await getCodeInsights(workspaceRootPath);
+		// Pass the whitelist to drastically speed up AST parsing
+		const insights = await getCodeInsights(workspaceRootPath, false, relevantFiles);
 		codeInsights = summarizeCodeInsightsForAi(insights.files, priorityFileNames);
 	} catch {
 		codeInsights = [];

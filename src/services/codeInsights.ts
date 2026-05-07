@@ -179,21 +179,27 @@ async function analyzeFile(workspaceRootPath: string, relativePath: string): Pro
 
 export async function getCodeInsights(
 	workspaceRootPath: string | undefined,
-	forceRefresh = false
+	forceRefresh = false,
+	whitelistFiles?: string[]
 ): Promise<CodeInsightsPayload> {
 	if (!workspaceRootPath) {
 		return { files: [], totalAnalyzedFiles: 0 };
 	}
 
-	const cached = !forceRefresh ? cache.get(workspaceRootPath) : undefined;
+	const cached = !forceRefresh && !whitelistFiles ? cache.get(workspaceRootPath) : undefined;
 	if (cached) {
 		return cached.payload;
 	}
 
-	const allPaths = listProjectRelativePaths(workspaceRootPath, 1000);
+	const allPaths = whitelistFiles !== undefined 
+		? whitelistFiles 
+		: listProjectRelativePaths(workspaceRootPath, 1000);
+		
 	const candidates = allPaths.filter(relativePath =>
 		SUPPORTED_EXTENSIONS.has(path.extname(relativePath).toLowerCase())
 	);
+
+	console.log(`[IntelliTest AST Parser] Starting AST analysis on ${candidates.length} candidate files.`);
 
 	const files: CodeInsightFile[] = [];
 	for (const relativePath of candidates) {
@@ -208,6 +214,8 @@ export async function getCodeInsights(
 		totalAnalyzedFiles: candidates.length
 	};
 
-	cache.set(workspaceRootPath, { payload });
+	if (!whitelistFiles) {
+		cache.set(workspaceRootPath, { payload });
+	}
 	return payload;
 }
