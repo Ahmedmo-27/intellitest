@@ -12,6 +12,7 @@
 import axios from 'axios';
 import type { IntelliGenerationResult, TestCaseRow } from '../types/testCases.js';
 import { buildProjectMap } from './projectMap.js';
+import { listProjectRelativePaths } from './codebaseContext.js';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,14 @@ export type ProjectSession = {
 			coverage: number;
 		};
 	}>;
+};
+
+export type IntentAnalysisResult = {
+	decision: string;
+	matchedFeatures: string[];
+	relatedFeatures: string[];
+	relevantFiles: string[];
+	suggestions: string[];
 };
 
 // ── shared helpers ─────────────────────────────────────────────────────────────
@@ -146,7 +155,42 @@ export async function generateViaBackendV2(
 	userPrompt: string
 ): Promise<IntelliGenerationResult> {
 	const root = baseUrl.replace(/\/$/, '');
-	const projectMap = await buildProjectMap(workspaceRootPath, detectedStack, userPrompt);
+
+	// PASS 1: Pre-flight check
+	// Grab lightweight file list (no AST parsing yet)
+	const lightweightFiles = listProjectRelativePaths(workspaceRootPath, 1000);
+	
+	// Ask backend to map prompt to features and dependencies
+	console.log(`[IntelliTest Pass 1] Sending prompt: "${userPrompt}" with ${lightweightFiles.length} raw files to /analyze-intent`);
+	const intentAnalysis = await analyzeIntentV2(baseUrl, projectId, userPrompt, lightweightFiles);
+	
+	// If API succeeded, use its files (even if empty, meaning feature not found).
+	// Only fallback to full parsing if API call failed entirely (null).
+	const relevantFiles = intentAnalysis !== null 
+		? intentAnalysis.relevantFiles 
+		: undefined;
+
+	console.log(`[IntelliTest Pass 1 Result] Backend returned ${relevantFiles?.length || 0} relevant files. Decision: ${intentAnalysis?.decision}`);
+
+	// Intercept missing features before doing any heavy lifting
+	if (intentAnalysis && intentAnalysis.decision === 'none') {
+		const suggestions = intentAnalysis.suggestions && intentAnalysis.suggestions.length > 0 
+			? ` Did you mean to test: ${intentAnalysis.suggestions.join(', ')}?`
+			: '';
+		throw new Error(
+			`We couldn't find any code matching "${userPrompt}" in your project. IntelliTest requires the feature to exist in your codebase before it can generate meaningful tests for it. Please check your spelling or verify the feature is implemented.${suggestions}`
+		);
+	}
+
+	// PASS 2: Targeted Generation
+	// Build map using ONLY the relevant files
+	console.log(`[IntelliTest Pass 2] Building project map with ${relevantFiles ? 'whitelist' : 'full project'}...`);
+	const projectMap = await buildProjectMap(workspaceRootPath, detectedStack, userPrompt, relevantFiles);
+
+	console.log(`[IntelliTest Final Payload] Sending to LLM:
+- Routes attached: ${projectMap.routes.length}
+- Files fully parsed (Code Insights): ${projectMap.codeInsights.length}
+- Target Modules: ${projectMap.modules.length}`);
 
 	let data: { testCases?: ServerTestCase[]; meta?: unknown; error?: string; detail?: string; message?: string };
 	try {
@@ -179,6 +223,34 @@ export async function generateViaBackendV2(
 		testCases,
 		testScript: null
 	};
+}
+
+/**
+ * POST /analyze-intent
+ * Fast pre-flight check to determine relevant features and files for a prompt
+ */
+export async function analyzeIntentV2(
+	baseUrl: string,
+	projectId: string,
+	userPrompt: string,
+	files: string[]
+): Promise<IntentAnalysisResult | null> {
+	const root = baseUrl.replace(/\/$/, '');
+	try {
+		const res = await axios.post<IntentAnalysisResult>(`${root}/analyze-intent`, {
+			projectId,
+			prompt: userPrompt,
+			files
+		}, {
+			timeout: 10_000,
+			headers: { 'Content-Type': 'application/json' }
+		});
+		return res.data;
+	} catch (err) {
+		// Non-critical: if intent analysis fails, we can fallback to full map
+		console.warn('IntelliTest: analyzeIntentV2 failed', err);
+		return null;
+	}
 }
 
 /**

@@ -119,8 +119,9 @@ Add more by editing the `<select>` elements in `Views/Demo.html`.
 cd Server && npm run dev
 
 # Terminal 2: Website
-cd website && python -m http.server 8000
-```
+# from root directory 
+node website-server.js
+
 
 ### Production
 1. **Frontend:** Deploy `website` folder to static hosting (Netlify, Vercel, etc.)

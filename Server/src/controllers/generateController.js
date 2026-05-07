@@ -291,6 +291,49 @@ export async function generate(req, res) {
   }
 }
 
+/**
+ * POST /analyze-intent
+ * Fast pre-flight check to determine relevant features and files for a prompt
+ */
+export async function analyzeIntent(req, res) {
+  try {
+    const { prompt, projectId, files } = req.body;
+    if (!prompt) return res.json({ decision: "none", matchedFeatures: [], relatedFeatures: [], relevantFiles: [] });
+    
+    // We create a mock projectMap to run feature extraction on the lightweight file list
+    const mockMap = { files: files || [] };
+    const extractedFeatures = extractFeatures(mockMap, projectId);
+    const relationships = buildFeatureRelationships(extractedFeatures, projectId);
+    
+    const matchResult = mapPromptToFeatures(prompt, extractedFeatures, relationships);
+    
+    // Collect all relevant files from matched and related features
+    const relevantFilesSet = new Set();
+    const matchedFeatureNames = matchResult.features.map(f => f.name);
+    
+    for (const mf of matchResult.features) {
+      if (mf.files) mf.files.forEach(f => relevantFilesSet.add(f));
+    }
+    
+    const relatedFeatureNames = matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name));
+    for (const rf of relatedFeatureNames) {
+      const feat = extractedFeatures.find(f => f.normalizedName === rf);
+      if (feat && feat.files) feat.files.forEach(f => relevantFilesSet.add(f));
+    }
+
+    return res.json({
+      decision: matchResult.decision,
+      matchedFeatures: matchedFeatureNames,
+      relatedFeatures: relatedFeatureNames,
+      relevantFiles: Array.from(relevantFilesSet),
+      suggestions: matchResult.suggestions || []
+    });
+  } catch (err) {
+    logger.error("analyze_intent_failed", { message: err.message });
+    return res.status(500).json({ error: "Failed to analyze intent" });
+  }
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /**
