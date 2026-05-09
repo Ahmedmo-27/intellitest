@@ -1,4 +1,4 @@
-# AI Context for IntelliTest
+# AI Context for Debuggo
 
 ## Purpose
 This document is the primary context guide for any AI coding assistant working on this repository.
@@ -14,7 +14,7 @@ Use this as the source of truth for:
 - coding and integration conventions
 
 ## Project Overview
-IntelliTest is a VS Code extension that generates structured software test cases using AI.
+Debuggo is a VS Code extension that generates structured software test cases using AI.
 
 Primary objective:
 - help developers and testers quickly generate practical, structured test cases from a user prompt, while also considering project context
@@ -40,11 +40,8 @@ Primary objective:
 ## Architecture
 High-level component responsibilities:
 - [src/extension.ts](src/extension.ts): extension activation and provider registration
-- [src/providers/IntelliTestViewProvider.ts](src/providers/IntelliTestViewProvider.ts): webview orchestration, **auth gate**, generation flow (stateful backend v2), session/bootstrap, export
-- [src/services/authSession.ts](src/services/authSession.ts): IntelliTest account login/sign-up HTTP calls + JWT persisted in VS Code SecretStorage
-- [src/services/backendClient.ts](src/services/backendClient.ts): HTTP client for the Node/Mongo backend (`/generate`, `/analyze-intent`, `/project/...`), sends `Authorization: Bearer` when authenticated
-- [src/errors/unauthorized.ts](src/errors/unauthorized.ts): `UnauthorizedApiError` when the backend returns 401 (clears session in the sidebar)
-- [src/services/groq.ts](src/services/groq.ts): legacy/direct Groq integration (still present; primary product path uses backend LLM configuration)
+- [src/providers/DebuggoViewProvider.ts](src/providers/DebuggoViewProvider.ts): backend orchestration for webview interactions, generation flow, and export flow
+- [src/services/groq.ts](src/services/groq.ts): AI integration layer and structured JSON parsing
 - [src/services/techStack.ts](src/services/techStack.ts): tech stack detection logic
 - [src/services/codebaseContext.ts](src/services/codebaseContext.ts): broad codebase context builder for file-name awareness
 - [src/services/codeInsights.ts](src/services/codeInsights.ts): AST-based symbol extraction with syntax and semantic layers
@@ -52,9 +49,9 @@ High-level component responsibilities:
 - [src/services/excel.ts](src/services/excel.ts): Excel workbook generation and file export
 - [src/types/messages.ts](src/types/messages.ts): webview-backend message contract
 - [src/types/testCases.ts](src/types/testCases.ts): strongly typed test case data model
-- [webview/intellitest.html](webview/intellitest.html): sidebar markup
-- [webview/intellitest.css](webview/intellitest.css): VS Code-themed styling
-- [webview/intellitest.js](webview/intellitest.js): frontend behavior, state updates, and message handling
+- [webview/debuggo.html](webview/debuggo.html): sidebar markup
+- [webview/debuggo.css](webview/debuggo.css): VS Code-themed styling
+- [webview/debuggo.js](webview/debuggo.js): frontend behavior, state updates, and message handling
 
 ### Message Passing Model
 Communication is event-driven between webview and extension host (`IntelliTestViewProvider`).
@@ -78,7 +75,7 @@ Extension → webview commands (non-exhaustive):
 - All stateful backend calls from the extension include `Authorization: Bearer <token>` so MongoDB persists and loads **per userId + projectId** (messages, context, generations).
 
 ## AI Integration
-Stateful generation uses the **IntelliTest Node backend** (`Server/`), which calls the configured LLM (see server config). Older or alternative paths may reference Groq directly in extension code.
+The extension uses Groq’s OpenAI-compatible Chat Completions API as the default external LLM provider (configurable via environment variables).
 
 Key points:
 - API transport via Axios (extension ↔ backend; backend ↔ model provider as configured)
@@ -164,7 +161,7 @@ Additional output requirement:
 
 ## Security and Config Notes
 - Do not commit secrets
-- Use environment variable GROQ_API_KEY
+- Configure AI provider variables in `Server/.env` (from `Server/.env.example`)
 - Debug run configuration supports environment loading via [ .vscode/launch.json ](.vscode/launch.json)
 
 ## Future Extensions

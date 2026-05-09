@@ -1,0 +1,397 @@
+import * as vscode from 'vscode';
+import axios from 'axios';
+import { generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
+import {
+	clearStoredToken,
+	fetchSessionUser,
+	getStoredToken,
+	loginRequest,
+	saveToken,
+	signupRequest
+} from '../services/authSession.js';
+import { UnauthorizedApiError } from '../errors/unauthorized.js';
+import { getCodeInsights } from '../services/codeInsights.js';
+import { exportTestCasesToExcel, readTestCasesFromExcel } from '../services/excel.js';
+import { detectTechStack } from '../services/techStack.js';
+import { generateTestCodeWithGroq } from '../services/groqTestCode.js';
+import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
+import type { IntelliGenerationResult } from '../types/testCases.js';
+import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
+import type { WebviewMessage } from '../types/messages.js';
+import { getWebviewHtml } from '../webview/template.js';
+import { getOrCreateProjectId } from '../utils/projectId.js';
+import { listProjectRelativePaths } from '../services/codebaseContext.js';
+
+const EMPTY_GENERATION: IntelliGenerationResult = {
+	recommendedTestingFramework: 'Not generated yet',
+	testCases: [],
+	testScript: null
+};
+
+export class DebuggoViewProvider implements vscode.WebviewViewProvider {
+	public static readonly viewType = 'debuggoView';
+
+	private readonly extensionUri: vscode.Uri;
+	private readonly extensionContext: vscode.ExtensionContext;
+	private detectedStack: string;
+	/** Test runner(s) inferred from project files (package.json, etc.). */
+	private recommendedTestingFramework = 'Not detected yet';
+	private view?: vscode.WebviewView;
+	private latestGenerated: IntelliGenerationResult = EMPTY_GENERATION;
+	/** Path of the most recently exported Excel file — used by Generate Test Code. */
+	private lastExcelPath: string | undefined;
+
+	/** Stable per-workspace identifier — generated once, persisted across restarts. */
+	private readonly projectId: string;
+
+	/** In-memory JWT for this extension session; cleared on logout or invalid token. */
+	private authToken?: string;
+
+	public constructor(context: vscode.ExtensionContext, extensionUri: vscode.Uri) {
+		this.extensionContext = context;
+		this.extensionUri = extensionUri;
+		this.projectId = getOrCreateProjectId(context);
+	}
+
+	/**
+	 * Updates stack/framework after async workspace detection and refreshes the webview if it is open.
+	 * The webview treats duplicate `init` messages as normal UI updates.
+	 */
+	public updateWorkspaceContext(detectedStack: string, recommendedTestingFramework: string): void {
+		this.detectedStack = detectedStack;
+		this.recommendedTestingFramework = recommendedTestingFramework;
+		void this.view?.webview.postMessage({
+			command: 'init',
+			detectedStack: this.detectedStack,
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			projectId: this.projectId
+		});
+	}
+
+	public resolveWebviewView(webviewView: vscode.WebviewView): void {
+		this.view = webviewView;
+		const webview = webviewView.webview;
+
+		webview.options = {
+			enableScripts: true,
+			localResourceRoots: [
+				vscode.Uri.joinPath(this.extensionUri, 'media'),
+				vscode.Uri.joinPath(this.extensionUri, 'webview')
+			]
+		};
+
+		webview.onDidReceiveMessage((message: WebviewMessage) => {
+			switch (message.command) {
+				case 'generate':
+					void this.handleGenerate(message.prompt);
+					break;
+				case 'generateTestCode':
+					void this.handleGenerateTestCode();
+					break;
+				case 'syncProject':
+					void this.handleSyncProject();
+					break;
+				case 'exportExcel':
+					void this.handleExportExcel();
+					break;
+				case 'copyTestScript':
+					void this.handleCopyTestScript(message.code);
+					break;
+				case 'saveTestScript':
+					void this.handleSaveTestScript(message.filename, message.code);
+					break;
+				case 'ready':
+					void this.handleWebviewReady();
+					break;
+				case 'login':
+					void this.handleAuthLogin(message.email, message.password);
+					break;
+				case 'signup':
+					void this.handleAuthSignup(message.name, message.email, message.password);
+					break;
+				case 'logout':
+					void this.handleLogout();
+					break;
+				case 'retryAuth':
+					void this.handleWebviewReady();
+					break;
+				case 'refreshCodeInsights':
+					void this.postCodeInsights(true);
+					break;
+			}
+		});
+
+		try {
+			webview.html = getWebviewHtml(this.extensionUri, webview);
+		} catch (err) {
+			const detail = err instanceof Error ? err.message : String(err);
+			console.error('Debuggo: failed to load webview HTML', err);
+			const safe = detail.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+			webview.html = `<!DOCTYPE html><html><body style="padding:12px;font:13px var(--vscode-font-family);color:var(--vscode-foreground);">
+<p><strong>Debuggo could not load its panel.</strong></p>
+<p>${safe}</p>
+<p>If you installed from the Marketplace, reinstall the extension or update to the latest version.</p>
+</body></html>`;
+		}
+	}
+
+	// ── Session loading ──────────────────────────────────────────────────────────
+
+	/**
+	 * Fetch previous session from /project/:projectId/init and push it to the webview.
+	 */
+	private async loadAndPostSession(): Promise<void> {
+		const backendUrl =
+			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			return; // No backend configured — skip session loading
+		}
+
+		try {
+			const session = await loadProjectSession(backendUrl, this.projectId, this.authToken);
+			if (!session) {
+				return;
+			}
+
+			void this.view?.webview.postMessage({
+				command: 'sessionLoaded',
+				projectId: this.projectId,
+				messages: session.messages,
+				context: session.context,
+				features: session.features
+			});
+		} catch (err) {
+			if (err instanceof UnauthorizedApiError) {
+				await this.clearSessionDueToUnauthorized();
+				return;
+			}
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`Debuggo: could not load previous session — ${msg}`);
+		}
+	}
+
+	// ── Sync Project ─────────────────────────────────────────────────────────────
+
+	private async handleSyncProject(silent = false): Promise<void> {
+		const backendUrl =
+			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			if (!silent) void vscode.window.showErrorMessage('Please configure Debuggo backend URL in settings.');
+			return;
+		}
+
+		const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (!workspaceRootPath) {
+			return;
+		}
+
+		const allFiles = listProjectRelativePaths(workspaceRootPath, 2000);
+
+		if (silent) {
+			try {
+				await syncProject(backendUrl, this.projectId, allFiles, this.authToken);
+			} catch (err) {
+				if (err instanceof UnauthorizedApiError) {
+					await this.clearSessionDueToUnauthorized();
+				}
+			}
+			return;
+		}
+
+		void vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Debuggo: Building Global Intelligence Graph...',
+				cancellable: false
+			},
+			async () => {
+				const success = await syncProject(backendUrl, this.projectId, allFiles);
+				if (success) {
+					void vscode.window.showInformationMessage(
+						'Debuggo: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.'
+					);
+				} else {
+					void vscode.window.showErrorMessage(
+						'Debuggo: Failed to sync project map. Check backend server logs.'
+					);
+				}
+			}
+		);
+	}
+
+	// ── Generate ─────────────────────────────────────────────────────────────────
+
+	private async handleGenerate(promptInput: string): Promise<void> {
+		const prompt = (promptInput ?? '').trim();
+
+		if (!prompt) {
+			this.latestGenerated = EMPTY_GENERATION;
+			this.postResult(this.latestGenerated);
+			void vscode.window.showInformationMessage('Please enter a prompt first.');
+			return;
+		}
+
+		const backendUrl =
+			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			void vscode.window.showErrorMessage(
+				'Debuggo: set debuggo.backendUrl in Settings (default hosted API: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local server).'
+			);
+			return;
+		}
+
+		if (!this.authToken) {
+			void vscode.window.showErrorMessage('IntelliTest: Please sign in from the sidebar to generate test cases.');
+			return;
+		}
+
+		try {
+			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+			this.latestGenerated = await vscode.window.withProgress(
+				{
+					location: vscode.ProgressLocation.Notification,
+					title: 'Debuggo: generating test cases…',
+					cancellable: false
+				},
+				// Use the new stateful v2 endpoint
+				async () =>
+					generateViaBackendV2(backendUrl, this.projectId, workspaceRootPath, this.detectedStack, prompt)
+			);
+
+			this.recommendedTestingFramework =
+				detectRecommendedTestingFramework(workspaceRootPath) || this.recommendedTestingFramework;
+
+			this.postResult(this.latestGenerated);
+
+			void vscode.window.showInformationMessage('Debuggo: test cases are ready in the panel.');
+		} catch (error) {
+			if (error instanceof UnauthorizedApiError) {
+				await this.clearSessionDueToUnauthorized();
+				return;
+			}
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			void vscode.window.showErrorMessage(`Debuggo generation failed: ${errorMessage}`);
+		}
+	}
+
+	// ── Clipboard / file ops ──────────────────────────────────────────────────────
+
+	private async handleCopyTestScript(code: string): Promise<void> {
+		if (!code?.trim()) {
+			return;
+		}
+		await vscode.env.clipboard.writeText(code);
+		void vscode.window.showInformationMessage('Test script copied to clipboard.');
+	}
+
+	private async handleSaveTestScript(filename: string, code: string): Promise<void> {
+		const trimmed = code?.trim();
+		if (!trimmed) {
+			return;
+		}
+
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		if (!folder) {
+			void vscode.window.showErrorMessage('Open a folder workspace to save the test script.');
+			return;
+		}
+
+		const safeName = sanitizeTestFilename(filename || 'generated.test.js');
+		const testsDir = vscode.Uri.joinPath(folder.uri, 'tests');
+
+		try {
+			try {
+				await vscode.workspace.fs.stat(testsDir);
+			} catch {
+				await vscode.workspace.fs.createDirectory(testsDir);
+			}
+
+			const target = vscode.Uri.joinPath(testsDir, safeName);
+			await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(trimmed));
+
+			void vscode.window.showInformationMessage(`Saved test script to ${target.fsPath}`);
+
+			const doc = await vscode.workspace.openTextDocument(target);
+			await vscode.window.showTextDocument(doc);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			void vscode.window.showErrorMessage(`Could not save test script: ${msg}`);
+		}
+	}
+
+	private async handleExportExcel(): Promise<void> {
+		this.postExportStatus(true);
+
+		if (this.latestGenerated.testCases.length === 0) {
+			void vscode.window.showWarningMessage('No generated test cases available to export.');
+			this.postExportStatus(false);
+			return;
+		}
+
+		try {
+			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			const outputUri = await exportTestCasesToExcel(this.latestGenerated.testCases, workspaceRootPath);
+
+			// Remember the path so "Generate Test Code" can read it
+			this.lastExcelPath = outputUri.fsPath;
+
+			const action = await vscode.window.showInformationMessage(
+				'Test cases generated successfully.',
+				'Open Folder'
+			);
+
+			if (action === 'Open Folder') {
+				await vscode.commands.executeCommand('revealFileInOS', outputUri);
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			if (errorMessage.includes('cancelled')) {
+				return;
+			}
+			void vscode.window.showErrorMessage(`Excel export failed: ${errorMessage}`);
+		} finally {
+			this.postExportStatus(false);
+		}
+	}
+
+	// ── Post-to-webview helpers ───────────────────────────────────────────────────
+
+	private postResult(generated: IntelliGenerationResult): void {
+		void this.view?.webview.postMessage({
+			command: 'result',
+			testCases: generated.testCases,
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			testScript: null
+		});
+	}
+
+	private postExportStatus(isExporting: boolean): void {
+		void this.view?.webview.postMessage({
+			command: 'exportStatus',
+			isExporting
+		});
+	}
+
+	private async postCodeInsights(forceRefresh = false): Promise<void> {
+		try {
+			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			const insights = await getCodeInsights(workspaceRootPath, forceRefresh);
+
+			void this.view?.webview.postMessage({
+				command: 'codeInsights',
+				files: insights.files,
+				totalAnalyzedFiles: insights.totalAnalyzedFiles
+			});
+		} catch {
+			void this.view?.webview.postMessage({
+				command: 'codeInsights',
+				files: [],
+				totalAnalyzedFiles: 0
+			});
+		}
+	}
+}
