@@ -33,6 +33,7 @@
         <div class="actions">
             <button id="generateButton" class="btn-primary">Generate Test Cases</button>
             <button id="exportButton" class="btn-primary btn-export" disabled>Export to Excel</button>
+            <button id="generateCodeButton" class="btn-primary btn-generate-code" disabled>Generate Test Code</button>
         </div>
 
         <div class="info-card" id="frameworkCard">
@@ -79,17 +80,16 @@
             </div>
         </div>
 
-        <!-- Suggested test script section (disabled for now — re-enable when bringing back /generate-tests)
+        <!-- Generated test code section — visible after "Generate Test Code" succeeds -->
         <div class="output-section script-section" id="scriptSection" style="display: none;">
-            <div class="output-label">Suggested test script</div>
+            <div class="output-label">Generated Test Code</div>
             <div class="script-meta" id="scriptMeta"></div>
             <div class="script-actions">
                 <button type="button" id="copyScriptButton" class="btn-secondary">Copy code</button>
                 <button type="button" id="saveScriptButton" class="btn-secondary">Save to workspace…</button>
             </div>
-            <pre class="script-pre" id="scriptPre" aria-label="Generated test script"></pre>
+            <pre class="script-pre" id="scriptPre" aria-label="Generated test code"></pre>
         </div>
-        -->
     </main>
 
     <script src="{{scriptUri}}"></script>

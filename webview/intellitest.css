@@ -139,6 +139,14 @@ label {
 	cursor: not-allowed;
 }
 
+.btn-generate-code:disabled {
+	background-color: var(--vscode-editor-background);
+	color: var(--vscode-descriptionForeground);
+	border: 1px solid var(--vscode-widget-border);
+	opacity: 1;
+	cursor: not-allowed;
+}
+
 .btn-primary:hover:not(:disabled) {
 	background-color: var(--vscode-button-hoverBackground);
 }
