@@ -1,7 +1,19 @@
 import * as vscode from 'vscode';
-import { generateViaBackend, generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
+import axios from 'axios';
+import { generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
+import {
+	clearStoredToken,
+	fetchSessionUser,
+	getStoredToken,
+	loginRequest,
+	saveToken,
+	signupRequest
+} from '../services/authSession.js';
+import { UnauthorizedApiError } from '../errors/unauthorized.js';
 import { getCodeInsights } from '../services/codeInsights.js';
-import { exportTestCasesToExcel } from '../services/excel.js';
+import { exportTestCasesToExcel, readTestCasesFromExcel } from '../services/excel.js';
+import { detectTechStack } from '../services/techStack.js';
+import { generateTestCodeWithGroq } from '../services/groqTestCode.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
 import type { IntelliGenerationResult } from '../types/testCases.js';
 import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
@@ -23,23 +35,21 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	private readonly extensionContext: vscode.ExtensionContext;
 	private detectedStack: string;
 	/** Test runner(s) inferred from project files (package.json, etc.). */
-	private recommendedTestingFramework: string;
+	private recommendedTestingFramework = 'Not detected yet';
 	private view?: vscode.WebviewView;
 	private latestGenerated: IntelliGenerationResult = EMPTY_GENERATION;
+	/** Path of the most recently exported Excel file — used by Generate Test Code. */
+	private lastExcelPath: string | undefined;
 
 	/** Stable per-workspace identifier — generated once, persisted across restarts. */
 	private readonly projectId: string;
 
-	public constructor(
-		context: vscode.ExtensionContext,
-		extensionUri: vscode.Uri,
-		detectedStack: string,
-		recommendedTestingFramework: string
-	) {
+	/** In-memory JWT for this extension session; cleared on logout or invalid token. */
+	private authToken?: string;
+
+	public constructor(context: vscode.ExtensionContext, extensionUri: vscode.Uri) {
 		this.extensionContext = context;
 		this.extensionUri = extensionUri;
-		this.detectedStack = detectedStack;
-		this.recommendedTestingFramework = recommendedTestingFramework;
 		this.projectId = getOrCreateProjectId(context);
 	}
 
@@ -75,6 +85,9 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 				case 'generate':
 					void this.handleGenerate(message.prompt);
 					break;
+				case 'generateTestCode':
+					void this.handleGenerateTestCode();
+					break;
 				case 'syncProject':
 					void this.handleSyncProject();
 					break;
@@ -88,19 +101,19 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 					void this.handleSaveTestScript(message.filename, message.code);
 					break;
 				case 'ready':
-					// 1. Send basic init info
-					void webview.postMessage({
-						command: 'init',
-						detectedStack: this.detectedStack,
-						recommendedTestingFramework: this.recommendedTestingFramework,
-						projectId: this.projectId
-					});
-					// 2. Load previous session from server
-					void this.loadAndPostSession();
-					// 3. Auto-sync the project map globally in the background
-					void this.handleSyncProject(true);
-					// 4. Load code insights
-					void this.postCodeInsights();
+					void this.handleWebviewReady();
+					break;
+				case 'login':
+					void this.handleAuthLogin(message.email, message.password);
+					break;
+				case 'signup':
+					void this.handleAuthSignup(message.name, message.email, message.password);
+					break;
+				case 'logout':
+					void this.handleLogout();
+					break;
+				case 'retryAuth':
+					void this.handleWebviewReady();
 					break;
 				case 'refreshCodeInsights':
 					void this.postCodeInsights(true);
@@ -126,7 +139,6 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 	/**
 	 * Fetch previous session from /project/:projectId/init and push it to the webview.
-	 * Fails silently if the backend is not running.
 	 */
 	private async loadAndPostSession(): Promise<void> {
 		const backendUrl =
@@ -137,9 +149,9 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		try {
-			const session = await loadProjectSession(backendUrl, this.projectId);
+			const session = await loadProjectSession(backendUrl, this.projectId, this.authToken);
 			if (!session) {
-				return; // Server unreachable — silent degradation
+				return;
 			}
 
 			void this.view?.webview.postMessage({
@@ -147,10 +159,13 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 				projectId: this.projectId,
 				messages: session.messages,
 				context: session.context,
-				features: session.features,
+				features: session.features
 			});
 		} catch (err) {
-			// Non-critical — log but don't surface to user
+			if (err instanceof UnauthorizedApiError) {
+				await this.clearSessionDueToUnauthorized();
+				return;
+			}
 			const msg = err instanceof Error ? err.message : String(err);
 			console.warn(`Debuggo: could not load previous session — ${msg}`);
 		}
@@ -172,12 +187,16 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		// Grab lightweight file list (all 1000+ files)
 		const allFiles = listProjectRelativePaths(workspaceRootPath, 2000);
 
 		if (silent) {
-			// Auto-sync in the background
-			await syncProject(backendUrl, this.projectId, allFiles).catch(() => {});
+			try {
+				await syncProject(backendUrl, this.projectId, allFiles, this.authToken);
+			} catch (err) {
+				if (err instanceof UnauthorizedApiError) {
+					await this.clearSessionDueToUnauthorized();
+				}
+			}
 			return;
 		}
 
@@ -224,6 +243,11 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		if (!this.authToken) {
+			void vscode.window.showErrorMessage('IntelliTest: Please sign in from the sidebar to generate test cases.');
+			return;
+		}
+
 		try {
 			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
@@ -245,6 +269,10 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 			void vscode.window.showInformationMessage('Debuggo: test cases are ready in the panel.');
 		} catch (error) {
+			if (error instanceof UnauthorizedApiError) {
+				await this.clearSessionDueToUnauthorized();
+				return;
+			}
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			void vscode.window.showErrorMessage(`Debuggo generation failed: ${errorMessage}`);
 		}
@@ -308,8 +336,11 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 			const outputUri = await exportTestCasesToExcel(this.latestGenerated.testCases, workspaceRootPath);
 
+			// Remember the path so "Generate Test Code" can read it
+			this.lastExcelPath = outputUri.fsPath;
+
 			const action = await vscode.window.showInformationMessage(
-				'Excel file generated successfully',
+				'Test cases generated successfully.',
 				'Open Folder'
 			);
 

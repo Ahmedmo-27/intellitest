@@ -57,9 +57,22 @@ export function createApp() {
     return rateLimiter(req, res, next);
   });
 
-  // ── Health check ─────────────────────────────────────────────────────────
+// ── Health check ─────────────────────────────────────────────────────────
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "intellitest-backend", env: serverConfig.nodeEnv });
+  });
+
+  // ── LLM config — returns Groq credentials loaded from Server/.env ─────────
+  // Used by the extension's "Generate Test Code" feature so it reads keys
+  // from Server/.env (already loaded by dotenv) instead of the root .env.
+  app.get("/llm-config", (_req, res) => {
+    const apiKey = process.env.API_KEY?.trim() ?? '';
+    const model  = process.env.API_MODEL?.trim() ?? 'llama-3.3-70b-versatile';
+    const baseUrl = process.env.API_BASE_URL?.trim() ?? 'https://api.groq.com/openai/v1';
+    if (!apiKey) {
+      return res.status(500).json({ error: 'API_KEY is not set in Server/.env' });
+    }
+    return res.json({ apiKey, model, baseUrl });
   });
 
   // ── API routes ───────────────────────────────────────────────────────────

@@ -26,10 +26,156 @@ h1 {
 	color: var(--vscode-foreground);
 }
 
+.auth-gate {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 4px 2px 16px;
+	max-width: 100%;
+}
+
+.auth-title {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+}
+
+.auth-lead {
+	margin: 0;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.5;
+}
+
+.auth-banner {
+	font-size: 12px;
+	padding: 10px;
+	border-radius: 4px;
+	border: 1px solid var(--vscode-inputValidation-infoBorder);
+	background-color: var(--vscode-inputValidation-infoBackground);
+	color: var(--vscode-foreground);
+	line-height: 1.45;
+}
+
+.auth-banner code {
+	font-size: 11px;
+	padding: 1px 4px;
+	border-radius: 2px;
+	background-color: var(--vscode-textCodeBlock-background);
+}
+
+.auth-error-banner {
+	font-size: 12px;
+	padding: 10px;
+	border-radius: 4px;
+	border: 1px solid var(--vscode-inputValidation-errorBorder);
+	background-color: var(--vscode-inputValidation-errorBackground);
+	color: var(--vscode-foreground);
+	line-height: 1.45;
+}
+
+.auth-mode-row {
+	display: flex;
+	gap: 0;
+	border: 1px solid var(--vscode-widget-border);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.auth-tab {
+	flex: 1;
+	padding: 8px 10px;
+	border: none;
+	background-color: var(--vscode-editor-background);
+	color: var(--vscode-foreground);
+	font-family: inherit;
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.auth-tab:hover {
+	background-color: var(--vscode-list-hoverBackground);
+}
+
+.auth-tab.active {
+	background-color: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.auth-form {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+.auth-inline-error {
+	margin: 4px 0 0;
+	font-size: 11px;
+	color: var(--vscode-errorForeground);
+	line-height: 1.4;
+}
+
+.auth-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+
+.auth-submit {
+	flex: 1;
+	min-width: 120px;
+}
+
+.auth-retry {
+	flex: 0;
+}
+
+/* Ensure main UI stays hidden until auth (.app-workspace uses display:flex, which can override [hidden]) */
+.auth-gate[hidden],
+#appWorkspace[hidden] {
+	display: none !important;
+}
+
+.app-workspace {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-width: 100%;
+}
+
 .header-bar {
 	display: flex;
 	justify-content: space-between;
+	align-items: flex-start;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.header-actions {
+	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.user-label {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	max-width: 140px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.btn-compact {
+	padding: 4px 8px;
+	min-height: 24px;
+	font-size: 11px;
 }
 
 .description {
@@ -132,6 +278,14 @@ label {
 
 
 .btn-export:disabled {
+	background-color: var(--vscode-editor-background);
+	color: var(--vscode-descriptionForeground);
+	border: 1px solid var(--vscode-widget-border);
+	opacity: 1;
+	cursor: not-allowed;
+}
+
+.btn-generate-code:disabled {
 	background-color: var(--vscode-editor-background);
 	color: var(--vscode-descriptionForeground);
 	border: 1px solid var(--vscode-widget-border);
