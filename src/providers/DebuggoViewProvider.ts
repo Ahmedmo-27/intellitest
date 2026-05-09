@@ -108,7 +108,18 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			}
 		});
 
-		webview.html = getWebviewHtml(this.extensionUri, webview);
+		try {
+			webview.html = getWebviewHtml(this.extensionUri, webview);
+		} catch (err) {
+			const detail = err instanceof Error ? err.message : String(err);
+			console.error('Debuggo: failed to load webview HTML', err);
+			const safe = detail.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+			webview.html = `<!DOCTYPE html><html><body style="padding:12px;font:13px var(--vscode-font-family);color:var(--vscode-foreground);">
+<p><strong>Debuggo could not load its panel.</strong></p>
+<p>${safe}</p>
+<p>If you installed from the Marketplace, reinstall the extension or update to the latest version.</p>
+</body></html>`;
+		}
 	}
 
 	// ── Session loading ──────────────────────────────────────────────────────────
