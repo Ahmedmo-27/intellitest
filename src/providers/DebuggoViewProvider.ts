@@ -21,7 +21,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 	private readonly extensionUri: vscode.Uri;
 	private readonly extensionContext: vscode.ExtensionContext;
-	private readonly detectedStack: string;
+	private detectedStack: string;
 	/** Test runner(s) inferred from project files (package.json, etc.). */
 	private recommendedTestingFramework: string;
 	private view?: vscode.WebviewView;
@@ -41,6 +41,21 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		this.detectedStack = detectedStack;
 		this.recommendedTestingFramework = recommendedTestingFramework;
 		this.projectId = getOrCreateProjectId(context);
+	}
+
+	/**
+	 * Updates stack/framework after async workspace detection and refreshes the webview if it is open.
+	 * The webview treats duplicate `init` messages as normal UI updates.
+	 */
+	public updateWorkspaceContext(detectedStack: string, recommendedTestingFramework: string): void {
+		this.detectedStack = detectedStack;
+		this.recommendedTestingFramework = recommendedTestingFramework;
+		void this.view?.webview.postMessage({
+			command: 'init',
+			detectedStack: this.detectedStack,
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			projectId: this.projectId
+		});
 	}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
