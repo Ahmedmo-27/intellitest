@@ -1,6 +1,6 @@
 {
-  "name": "intellitest",
-  "displayName": "IntelliTest",
+  "name": "debuggo",
+  "displayName": "Debuggo",
   "description": "A VS Code extension that helps junior testers generate structured test cases by applying standard software testing techniques based on project context.",
   "version": "0.0.2",
   "publisher": "IntelliTest",
@@ -30,35 +30,35 @@
   "homepage": "https://github.com/mohamedelziat50/intellitest#readme",
   "type": "module",
   "activationEvents": [
-    "onView:intellitestView"
+    "onView:debuggoView"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "IntelliTest",
+      "title": "Debuggo",
       "properties": {
-        "intellitest.backendUrl": {
+        "debuggo.backendUrl": {
           "type": "string",
           "default": "https://intellitest-hyvw.onrender.com",
-          "description": "Base URL of the IntelliTest API (no trailing slash). Default is the hosted backend; use http://localhost:PORT when running Server locally (match Server/.env PORT)."
+          "description": "Base URL of the Debuggo API (no trailing slash). Default is the hosted backend; use http://localhost:PORT when running Server locally (match Server/.env PORT)."
         }
       }
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "intellitest-sidebar",
-          "title": "IntelliTest",
-          "icon": "media/intellitest.svg"
+          "id": "debuggo-sidebar",
+          "title": "Debuggo",
+          "icon": "media/debuggo.svg"
         }
       ]
     },
     "views": {
-      "intellitest-sidebar": [
+      "debuggo-sidebar": [
         {
           "type": "webview",
-          "id": "intellitestView",
-          "name": "IntelliTest"
+          "id": "debuggoView",
+          "name": "Debuggo"
         }
       ]
     }
