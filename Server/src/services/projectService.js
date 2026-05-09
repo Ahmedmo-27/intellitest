@@ -48,7 +48,7 @@ export async function upsertProject(userId, projectId, projectMap) {
         },
       },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   return project.toObject();
@@ -117,7 +117,7 @@ export async function mergeContext(userId, projectId, projectMap) {
       $inc:         { contextVersion: 1 },
       $setOnInsert: { userId, projectId },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   return updated.toObject();
@@ -249,29 +249,42 @@ export async function syncFeatureIntelligence(userId, projectId, features, relat
         filter: { userId, projectId, normalizedName: f.normalizedName },
         update: {
           $set: {
+            userId,
+            projectId,
             name: f.name,
             normalizedName: f.normalizedName,
-            files: f.files,
-            type: "backend" // or derive type
-          }
+            files: f.files ?? [],
+            type: f.type ?? "ui",
+            importanceScore: f.importanceScore ?? 0.5,
+          },
         },
-        upsert: true
-      }
+        upsert: true,
+      },
     }));
     await Feature.bulkWrite(ops, { ordered: false });
   }
 
   if (relationships && relationships.length > 0) {
-    const relOps = relationships.map(r => ({
+    const relOps = relationships.map((r) => ({
       updateOne: {
-        filter: { userId, projectId, feature: r.feature, relatedFeature: r.relatedFeature },
+        filter: {
+          userId,
+          projectId,
+          source: r.source,
+          target: r.target,
+          type: r.type,
+        },
         update: {
           $set: {
-            relationType: r.relationType
-          }
+            userId,
+            projectId,
+            source: r.source,
+            target: r.target,
+            type: r.type,
+          },
         },
-        upsert: true
-      }
+        upsert: true,
+      },
     }));
     await FeatureRelationship.bulkWrite(relOps, { ordered: false });
   }

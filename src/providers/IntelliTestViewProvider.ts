@@ -1,7 +1,17 @@
 import * as vscode from 'vscode';
-import { generateViaBackend, generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
+import { generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
+import {
+	clearStoredToken,
+	fetchSessionUser,
+	getStoredToken,
+	loginRequest,
+	saveToken,
+	signupRequest
+} from '../services/authSession.js';
+import { UnauthorizedApiError } from '../errors/unauthorized.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel } from '../services/excel.js';
+import { detectTechStack } from '../services/techStack.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
 import type { IntelliGenerationResult } from '../types/testCases.js';
 import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
@@ -21,26 +31,33 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 	private readonly extensionUri: vscode.Uri;
 	private readonly extensionContext: vscode.ExtensionContext;
-	private readonly detectedStack: string;
+	/** Populated after sign-in via workspace scan — never advertised before auth. */
+	private detectedStack = 'Unknown Tech Stack';
 	/** Test runner(s) inferred from project files (package.json, etc.). */
-	private recommendedTestingFramework: string;
+	private recommendedTestingFramework = 'Not detected yet';
 	private view?: vscode.WebviewView;
 	private latestGenerated: IntelliGenerationResult = EMPTY_GENERATION;
 
 	/** Stable per-workspace identifier — generated once, persisted across restarts. */
 	private readonly projectId: string;
 
-	public constructor(
-		context: vscode.ExtensionContext,
-		extensionUri: vscode.Uri,
-		detectedStack: string,
-		recommendedTestingFramework: string
-	) {
+	/** In-memory JWT for this extension session; cleared on logout or invalid token. */
+	private authToken?: string;
+
+	public constructor(context: vscode.ExtensionContext, extensionUri: vscode.Uri) {
 		this.extensionContext = context;
 		this.extensionUri = extensionUri;
-		this.detectedStack = detectedStack;
-		this.recommendedTestingFramework = recommendedTestingFramework;
 		this.projectId = getOrCreateProjectId(context);
+	}
+
+	private async hydrateWorkspaceSignalsFromFolder(): Promise<void> {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		if (!workspaceFolder) {
+			return;
+		}
+		this.detectedStack = await detectTechStack(workspaceFolder.uri);
+		this.recommendedTestingFramework =
+			detectRecommendedTestingFramework(workspaceFolder.uri.fsPath) || this.recommendedTestingFramework;
 	}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -73,19 +90,19 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					void this.handleSaveTestScript(message.filename, message.code);
 					break;
 				case 'ready':
-					// 1. Send basic init info
-					void webview.postMessage({
-						command: 'init',
-						detectedStack: this.detectedStack,
-						recommendedTestingFramework: this.recommendedTestingFramework,
-						projectId: this.projectId
-					});
-					// 2. Load previous session from server
-					void this.loadAndPostSession();
-					// 3. Auto-sync the project map globally in the background
-					void this.handleSyncProject(true);
-					// 4. Load code insights
-					void this.postCodeInsights();
+					void this.handleWebviewReady();
+					break;
+				case 'login':
+					void this.handleAuthLogin(message.email, message.password);
+					break;
+				case 'signup':
+					void this.handleAuthSignup(message.name, message.email, message.password);
+					break;
+				case 'logout':
+					void this.handleLogout();
+					break;
+				case 'retryAuth':
+					void this.handleWebviewReady();
 					break;
 				case 'refreshCodeInsights':
 					void this.postCodeInsights(true);
@@ -96,24 +113,215 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		webview.html = getWebviewHtml(this.extensionUri, webview);
 	}
 
+	private getBackendUrl(): string {
+		return vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
+	}
+
+	// ── Auth bootstrap ─────────────────────────────────────────────────────────────
+
+	private async handleWebviewReady(): Promise<void> {
+		const wv = this.view?.webview;
+		if (!wv) {
+			return;
+		}
+
+		void wv.postMessage({ command: 'authBusy', busy: false });
+
+		const backendUrl = this.getBackendUrl();
+		if (!backendUrl) {
+			this.authToken = undefined;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: false,
+				needsBackendUrl: true
+			});
+			return;
+		}
+
+		const stored = await getStoredToken(this.extensionContext);
+		this.authToken = stored;
+
+		if (!stored) {
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: false,
+				needsBackendUrl: false
+			});
+			return;
+		}
+
+		try {
+			const user = await fetchSessionUser(backendUrl, stored);
+			if (!user) {
+				await clearStoredToken(this.extensionContext);
+				this.authToken = undefined;
+				void wv.postMessage({
+					command: 'authState',
+					authenticated: false,
+					needsBackendUrl: false
+				});
+				return;
+			}
+
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: true,
+				user
+			});
+			await this.bootstrapAuthenticatedExperience();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`IntelliTest: session bootstrap failed — ${msg}`);
+			this.authToken = undefined;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: false,
+				needsBackendUrl: false,
+				bootstrapError:
+					'Could not reach the IntelliTest server to verify your account. Check that the backend is running and intellitest.backendUrl is correct, then use Retry below.'
+			});
+		}
+	}
+
+	private async handleAuthLogin(email: string, password: string): Promise<void> {
+		const wv = this.view?.webview;
+		const backendUrl = this.getBackendUrl();
+		if (!wv) {
+			return;
+		}
+
+		void wv.postMessage({ command: 'authBusy', busy: true });
+		void wv.postMessage({ command: 'authErrorClear' });
+
+		if (!backendUrl) {
+			void wv.postMessage({
+				command: 'authError',
+				message: 'Configure intellitest.backendUrl in Settings first.'
+			});
+			void wv.postMessage({ command: 'authBusy', busy: false });
+			return;
+		}
+
+		try {
+			const { token, user } = await loginRequest(backendUrl, email, password);
+			await saveToken(this.extensionContext, token);
+			this.authToken = token;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: true,
+				user
+			});
+			await this.bootstrapAuthenticatedExperience();
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			void wv.postMessage({ command: 'authError', message: m });
+		} finally {
+			void wv.postMessage({ command: 'authBusy', busy: false });
+		}
+	}
+
+	private async handleAuthSignup(name: string, email: string, password: string): Promise<void> {
+		const wv = this.view?.webview;
+		const backendUrl = this.getBackendUrl();
+		if (!wv) {
+			return;
+		}
+
+		void wv.postMessage({ command: 'authBusy', busy: true });
+		void wv.postMessage({ command: 'authErrorClear' });
+
+		if (!backendUrl) {
+			void wv.postMessage({
+				command: 'authError',
+				message: 'Configure intellitest.backendUrl in Settings first.'
+			});
+			void wv.postMessage({ command: 'authBusy', busy: false });
+			return;
+		}
+
+		try {
+			const { token, user } = await signupRequest(backendUrl, name, email, password);
+			await saveToken(this.extensionContext, token);
+			this.authToken = token;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: true,
+				user
+			});
+			await this.bootstrapAuthenticatedExperience();
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			void wv.postMessage({ command: 'authError', message: m });
+		} finally {
+			void wv.postMessage({ command: 'authBusy', busy: false });
+		}
+	}
+
+	private async handleLogout(): Promise<void> {
+		await clearStoredToken(this.extensionContext);
+		this.authToken = undefined;
+		this.latestGenerated = EMPTY_GENERATION;
+
+		const backendUrl = this.getBackendUrl();
+		void this.view?.webview.postMessage({
+			command: 'authState',
+			authenticated: false,
+			needsBackendUrl: !backendUrl
+		});
+		void this.view?.webview.postMessage({ command: 'resetMainUi' });
+	}
+
+	private async clearSessionDueToUnauthorized(): Promise<void> {
+		await clearStoredToken(this.extensionContext);
+		this.authToken = undefined;
+		this.latestGenerated = EMPTY_GENERATION;
+
+		void vscode.window.showWarningMessage(
+			'IntelliTest: Your session expired or was revoked. Please sign in again.'
+		);
+		void this.view?.webview.postMessage({
+			command: 'authState',
+			authenticated: false,
+			needsBackendUrl: !this.getBackendUrl()
+		});
+		void this.view?.webview.postMessage({ command: 'resetMainUi' });
+	}
+
+	private async bootstrapAuthenticatedExperience(): Promise<void> {
+		const wv = this.view?.webview;
+		if (!wv || !this.authToken) {
+			return;
+		}
+
+		await this.hydrateWorkspaceSignalsFromFolder();
+
+		void wv.postMessage({
+			command: 'init',
+			detectedStack: this.detectedStack,
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			projectId: this.projectId
+		});
+
+		await this.loadAndPostSession();
+		void this.handleSyncProject(true);
+		void this.postCodeInsights();
+	}
+
 	// ── Session loading ──────────────────────────────────────────────────────────
 
 	/**
 	 * Fetch previous session from /project/:projectId/init and push it to the webview.
-	 * Fails silently if the backend is not running.
 	 */
 	private async loadAndPostSession(): Promise<void> {
-		const backendUrl =
-			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
-
-		if (!backendUrl) {
-			return; // No backend configured — skip session loading
+		const backendUrl = this.getBackendUrl();
+		if (!backendUrl || !this.authToken) {
+			return;
 		}
 
 		try {
-			const session = await loadProjectSession(backendUrl, this.projectId);
+			const session = await loadProjectSession(backendUrl, this.projectId, this.authToken);
 			if (!session) {
-				return; // Server unreachable — silent degradation
+				return;
 			}
 
 			void this.view?.webview.postMessage({
@@ -121,10 +329,13 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 				projectId: this.projectId,
 				messages: session.messages,
 				context: session.context,
-				features: session.features,
+				features: session.features
 			});
 		} catch (err) {
-			// Non-critical — log but don't surface to user
+			if (err instanceof UnauthorizedApiError) {
+				await this.clearSessionDueToUnauthorized();
+				return;
+			}
 			const msg = err instanceof Error ? err.message : String(err);
 			console.warn(`IntelliTest: could not load previous session — ${msg}`);
 		}
@@ -133,11 +344,11 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 	// ── Sync Project ─────────────────────────────────────────────────────────────
 
 	private async handleSyncProject(silent = false): Promise<void> {
-		const backendUrl =
-			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
-
-		if (!backendUrl) {
-			if (!silent) void vscode.window.showErrorMessage('Please configure IntelliTest Backend URL in settings.');
+		const backendUrl = this.getBackendUrl();
+		if (!backendUrl || !this.authToken) {
+			if (!silent) {
+				void vscode.window.showErrorMessage('Please sign in and configure IntelliTest Backend URL in settings.');
+			}
 			return;
 		}
 
@@ -146,15 +357,19 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		// Grab lightweight file list (all 1000+ files)
 		const allFiles = listProjectRelativePaths(workspaceRootPath, 2000);
-		
+
 		if (silent) {
-			// Auto-sync in the background
-			await syncProject(backendUrl, this.projectId, allFiles).catch(() => {});
+			try {
+				await syncProject(backendUrl, this.projectId, allFiles, this.authToken);
+			} catch (err) {
+				if (err instanceof UnauthorizedApiError) {
+					await this.clearSessionDueToUnauthorized();
+				}
+			}
 			return;
 		}
-		
+
 		void vscode.window.withProgress(
 			{
 				location: vscode.ProgressLocation.Notification,
@@ -162,11 +377,23 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 				cancellable: false
 			},
 			async () => {
-				const success = await syncProject(backendUrl, this.projectId, allFiles);
-				if (success) {
-					void vscode.window.showInformationMessage('IntelliTest: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.');
-				} else {
-					void vscode.window.showErrorMessage('IntelliTest: Failed to sync project map. Check backend server logs.');
+				try {
+					const success = await syncProject(backendUrl, this.projectId, allFiles, this.authToken);
+					if (success) {
+						void vscode.window.showInformationMessage(
+							'IntelliTest: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.'
+						);
+					} else {
+						void vscode.window.showErrorMessage(
+							'IntelliTest: Failed to sync project map. Check backend server logs.'
+						);
+					}
+				} catch (err) {
+					if (err instanceof UnauthorizedApiError) {
+						await this.clearSessionDueToUnauthorized();
+					} else {
+						void vscode.window.showErrorMessage('IntelliTest: Failed to sync project map. Check backend server logs.');
+					}
 				}
 			}
 		);
@@ -184,13 +411,16 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		const backendUrl =
-			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
-
+		const backendUrl = this.getBackendUrl();
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
 				'IntelliTest: set intellitest.backendUrl in Settings (e.g. http://localhost:3000).'
 			);
+			return;
+		}
+
+		if (!this.authToken) {
+			void vscode.window.showErrorMessage('IntelliTest: Please sign in from the sidebar to generate test cases.');
 			return;
 		}
 
@@ -203,14 +433,15 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					title: 'IntelliTest: generating test cases…',
 					cancellable: false
 				},
-				// Use the new stateful v2 endpoint
-				async () => generateViaBackendV2(
-					backendUrl,
-					this.projectId,
-					workspaceRootPath,
-					this.detectedStack,
-					prompt
-				)
+				async () =>
+					generateViaBackendV2(
+						backendUrl,
+						this.projectId,
+						workspaceRootPath,
+						this.detectedStack,
+						prompt,
+						this.authToken
+					)
 			);
 
 			this.recommendedTestingFramework =
@@ -220,6 +451,10 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 			void vscode.window.showInformationMessage('IntelliTest: test cases are ready in the panel.');
 		} catch (error) {
+			if (error instanceof UnauthorizedApiError) {
+				await this.clearSessionDueToUnauthorized();
+				return;
+			}
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${errorMessage}`);
 		}

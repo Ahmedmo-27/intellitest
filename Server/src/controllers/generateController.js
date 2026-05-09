@@ -43,6 +43,44 @@ const FALLBACK_GENERATE = Object.freeze({
   meta: { fallback: true, message: "AI could not produce valid output. Please try again." },
 });
 
+/**
+ * mapPromptToFeatures() returns `{ decision, features, ... }` but this controller expects
+ * `matchType`, `matchedFeatures`, `relatedFeatures`, `confidence` (legacy shape).
+ */
+function adaptFeatureMappingResult(engineResult) {
+  const features = Array.isArray(engineResult?.features) ? engineResult.features : [];
+  const matchedFeatures = features.map((f) => f.name).filter(Boolean);
+
+  const relatedFeatures = [];
+  const seenRelated = new Set();
+  for (const f of features) {
+    for (const rel of f.relatedFeatures || []) {
+      const name = typeof rel === "string" ? rel : rel?.name;
+      if (name && !seenRelated.has(name)) {
+        seenRelated.add(name);
+        relatedFeatures.push(name);
+      }
+    }
+  }
+
+  let matchType = engineResult?.decision ?? "none";
+  if (matchType === "strong") {
+    matchType = "allowed";
+  }
+
+  return {
+    decision: engineResult?.decision ?? "none",
+    features,
+    warnings: engineResult?.warnings ?? [],
+    suggestions: engineResult?.suggestions ?? [],
+    matchType,
+    matchedFeatures,
+    relatedFeatures,
+    confidence: features[0]?.confidence ?? 0,
+    closestFlows: engineResult?.closestFlows ?? [],
+  };
+}
+
 // ── Controller ─────────────────────────────────────────────────────────────────
 
 /**
@@ -93,13 +131,16 @@ export async function generate(req, res) {
     const allowedFeatures = extractedFeatures.map(f => f.name || f.normalizedName);
 
     // ── Step 2.5: Guardrail Decision Layer (Feature Intelligence) ─────────────
-    // Note: relationships are not strictly needed here for validation, but mapPromptToFeatures uses it.
-    // We can pass empty relationships since analyzeIntent already handled the flow targeting.
-    const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, []);
+    const rawMapping = mapPromptToFeatures(userPrompt, extractedFeatures, []);
+    const matchResult = adaptFeatureMappingResult(rawMapping);
 
     let decision = "allowed";
     if (userPrompt.trim().length > 0) {
       decision = matchResult.matchType;
+    }
+    const hasCatalog = allowedFeatures.length > 0;
+    if (userPrompt.trim().length > 0 && !hasCatalog) {
+      decision = "allowed";
     }
 
     let coverageMap = {};
@@ -121,14 +162,15 @@ export async function generate(req, res) {
       decision: decision === "none" ? "fallback" : decision
     });
 
-    // ❌ REMOVED HARD BLOCKING, replaced with Fallback
-    if (decision === "none" && userPrompt.trim().length > 0) {
+    // When we *do* have a catalog but nothing matched the prompt, return structured fallback instead of bogus empty testCases.
+    if (decision === "none" && userPrompt.trim().length > 0 && hasCatalog) {
       return res.json({
         warning: "Feature not found",
         suggestions: matchResult.relatedFeatures.length > 0 ? matchResult.relatedFeatures.slice(0, 2) : ["product", "collection"],
         closestFlows: matchResult.closestFlows,
         action: "fallback",
-        features: []
+        features: [],
+        testCases: [],
       });
     }
 
@@ -222,25 +264,39 @@ export async function generate(req, res) {
 
     // ── Step 8: Upsert coverage & returned features ───────────────────────────
     const returnedFeatures = [];
-    if (userId && testCases.length > 0) {
-      const coverageResults = matchResult.matchedFeatures.map(f => calculateCoverage(f, testCases));
-      await projectService.upsertFeatureCoverage(userId, projectId, coverageResults);
+    if (userId && testCases.length > 0 && matchResult.matchedFeatures.length > 0) {
+      const coverageRows = matchResult.matchedFeatures.map((featureName) => {
+        const cal = calculateCoverage(featureName, testCases);
+        return { featureName, cal };
+      });
 
-      for (const cov of coverageResults) {
-        const featureObj = extractedFeatures.find(f => f.normalizedName === cov.feature);
+      await projectService.upsertFeatureCoverage(
+        userId,
+        projectId,
+        coverageRows.map(({ featureName, cal }) => ({
+          feature: featureName,
+          testCaseCount: testCases.length,
+          estimatedCoverage: cal.coverage,
+          missingAreas: cal.missingAreas,
+        }))
+      );
+
+      for (const { featureName, cal } of coverageRows) {
+        const featureObj = extractedFeatures.find((f) => f.normalizedName === featureName);
+        const fromMapping = matchResult.features.find((f) => f.name === featureName);
+        const relatedFromMapping = (fromMapping?.relatedFeatures ?? [])
+          .map((r) => (typeof r === "string" ? r : r?.name))
+          .filter(Boolean);
+
         returnedFeatures.push({
-          name: cov.feature,
+          name: featureName,
           files: featureObj ? featureObj.files : [],
-          relatedFeatures: relationships.filter(r => r.feature === cov.feature).map(r => r.relatedFeature),
-          coverage: cov.estimatedCoverage,
+          relatedFeatures: relatedFromMapping,
+          coverage: cal.coverage,
           confidence: matchResult.confidence,
-          missingTestAreas: cov.missingAreas
+          missingTestAreas: cal.missingAreas,
         });
       }
-
-      // Kept for backward compatibility if needed:
-      const oldFeatures = contextService.extractTestFeatures(testCases);
-      await projectService.upsertFeatures(userId, projectId, oldFeatures);
     }
 
     // ── Step 9: Respond ───────────────────────────────────────────────────────

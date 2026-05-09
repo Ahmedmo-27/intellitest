@@ -14,8 +14,7 @@ import * as vscode from 'vscode';
 import type { IntelliGenerationResult, TestCaseRow } from '../types/testCases.js';
 import { buildProjectMap } from './projectMap.js';
 import { listProjectRelativePaths } from './codebaseContext.js';
-
-// ── types ─────────────────────────────────────────────────────────────────────
+import { rethrowAxiosUnauthorized } from './authSession.js';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -129,7 +128,25 @@ function messageFromResponseData(data: unknown): string | undefined {
 	return undefined;
 }
 
+export function mergeJsonBearerHeaders(authToken?: string): Record<string, string> {
+	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+	const t = authToken?.trim();
+	if (t) {
+		headers.Authorization = `Bearer ${t}`;
+	}
+	return headers;
+}
+
+function bearerOnlyHeaders(authToken?: string): Record<string, string> | undefined {
+	const t = authToken?.trim();
+	if (!t) {
+		return undefined;
+	}
+	return { Authorization: `Bearer ${t}` };
+}
+
 function throwAxiosDetail(err: unknown): never {
+	rethrowAxiosUnauthorized(err);
 	if (axios.isAxiosError(err)) {
 		if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
 			throw new Error(
@@ -154,7 +171,8 @@ export async function generateViaBackendV2(
 	projectId: string,
 	workspaceRootPath: string | undefined,
 	detectedStack: string,
-	userPrompt: string
+	userPrompt: string,
+	authToken?: string
 ): Promise<IntelliGenerationResult> {
 	const root = baseUrl.replace(/\/$/, '');
 
@@ -164,7 +182,7 @@ export async function generateViaBackendV2(
 	
 	// Ask backend to map prompt to features and dependencies
 	console.log(`[IntelliTest Pass 1] Sending prompt: "${userPrompt}" with ${lightweightFiles.length} raw files to /analyze-intent`);
-	const intentAnalysis = await analyzeIntentV2(baseUrl, projectId, userPrompt, lightweightFiles);
+	const intentAnalysis = await analyzeIntentV2(baseUrl, projectId, userPrompt, lightweightFiles, authToken);
 	
 	// If API succeeded, use its files (even if empty, meaning feature not found).
 	// Only fallback to full parsing if API call failed entirely (null).
@@ -210,7 +228,7 @@ export async function generateViaBackendV2(
 			...projectMap,
 		}, {
 			timeout: 120_000,
-			headers: { 'Content-Type': 'application/json' }
+			headers: mergeJsonBearerHeaders(authToken)
 		});
 		data = res.data;
 	} catch (err) {
@@ -243,7 +261,8 @@ export async function analyzeIntentV2(
 	baseUrl: string,
 	projectId: string,
 	userPrompt: string,
-	files: string[]
+	files: string[],
+	authToken?: string
 ): Promise<IntentAnalysisResult | null> {
 	const root = baseUrl.replace(/\/$/, '');
 	try {
@@ -253,10 +272,11 @@ export async function analyzeIntentV2(
 			files
 		}, {
 			timeout: 10_000,
-			headers: { 'Content-Type': 'application/json' }
+			headers: mergeJsonBearerHeaders(authToken)
 		});
 		return res.data;
 	} catch (err) {
+		rethrowAxiosUnauthorized(err);
 		// Non-critical: if intent analysis fails, we can fallback to full map
 		console.warn('IntelliTest: analyzeIntentV2 failed', err);
 		return null;
@@ -269,7 +289,8 @@ export async function analyzeIntentV2(
 export async function syncProject(
 	baseUrl: string,
 	projectId: string,
-	files: string[]
+	files: string[],
+	authToken?: string
 ): Promise<boolean> {
 	const root = baseUrl.replace(/\/$/, '');
 	try {
@@ -277,10 +298,11 @@ export async function syncProject(
 			files
 		}, {
 			timeout: 20_000,
-			headers: { 'Content-Type': 'application/json' }
+			headers: mergeJsonBearerHeaders(authToken)
 		});
 		return true;
 	} catch (err) {
+		rethrowAxiosUnauthorized(err);
 		console.warn('IntelliTest: syncProject failed', err);
 		return false;
 	}
@@ -294,17 +316,20 @@ export async function syncProject(
  */
 export async function loadProjectSession(
 	baseUrl: string,
-	projectId: string
+	projectId: string,
+	authToken?: string
 ): Promise<ProjectSession | null> {
 	const root = baseUrl.replace(/\/$/, '');
 	try {
 		const res = await axios.get<ProjectSession>(`${root}/project/${encodeURIComponent(projectId)}/init`, {
 			timeout: 10_000,
+			headers: bearerOnlyHeaders(authToken)
 		});
 		return res.data;
 	} catch (err) {
+		rethrowAxiosUnauthorized(err);
 		if (axios.isAxiosError(err) && (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND')) {
-			// Server not running — extension still works, just without history
+			// Server not running — caller may treat as soft failure
 			return null;
 		}
 		// Re-throw other errors so callers can log them

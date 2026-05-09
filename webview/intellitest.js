@@ -1,5 +1,23 @@
 const vscode = acquireVsCodeApi();
 
+// ── Authenticated workspace DOM ───────────────────────────────────────────────
+const authGate = document.getElementById('authGate');
+const appWorkspace = document.getElementById('appWorkspace');
+const needsBackendBanner = document.getElementById('needsBackendBanner');
+const bootstrapErrorBanner = document.getElementById('bootstrapErrorBanner');
+const modeLoginBtn = document.getElementById('modeLoginBtn');
+const modeSignupBtn = document.getElementById('modeSignupBtn');
+const authForm = document.getElementById('authForm');
+const nameFieldWrap = document.getElementById('nameFieldWrap');
+const authName = document.getElementById('authName');
+const authEmail = document.getElementById('authEmail');
+const authPassword = document.getElementById('authPassword');
+const authInlineError = document.getElementById('authInlineError');
+const authSubmitBtn = document.getElementById('authSubmitBtn');
+const authRetryBtn = document.getElementById('authRetryBtn');
+const logoutButton = document.getElementById('logoutButton');
+const userLabel = document.getElementById('userLabel');
+
 const input = document.getElementById('promptInput');
 const button = document.getElementById('generateButton');
 const exportButton = document.getElementById('exportButton');
@@ -19,8 +37,10 @@ const scriptPre = document.getElementById('scriptPre');
 const copyScriptButton = document.getElementById('copyScriptButton');
 const saveScriptButton = document.getElementById('saveScriptButton');
 const scriptUiEnabled = Boolean(scriptSection && copyScriptButton && saveScriptButton);
-const defaultButtonText = button.textContent;
-const defaultExportButtonText = exportButton.textContent;
+const defaultButtonText = button?.textContent ?? 'Generate Test Cases';
+const defaultExportButtonText = exportButton?.textContent ?? 'Export to Excel';
+
+let signupMode = false;
 let hasGeneratedRows = false;
 let isExporting = false;
 let isInsightsPanelOpen = true;
@@ -28,8 +48,173 @@ const INSIGHTS_PAGE_SIZE = 8;
 let currentInsightsPage = 1;
 /** @type {{ filename: string, code: string } | null} */
 let currentScript = null;
+/** @type {unknown[]} */
+let cachedInsightFiles = [];
+
+/** When false, ignore init / results / insights — avoids races before authState. */
+let mainUiAuthorized = false;
+
+function escapeHtml(value) {
+	return String(value ?? '')
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;');
+}
+
+function setSignupMode(signup) {
+	signupMode = signup;
+	if (modeLoginBtn && modeSignupBtn) {
+		modeLoginBtn.classList.toggle('active', !signup);
+		modeSignupBtn.classList.toggle('active', signup);
+		modeLoginBtn.setAttribute('aria-selected', signup ? 'false' : 'true');
+		modeSignupBtn.setAttribute('aria-selected', signup ? 'true' : 'false');
+	}
+	if (nameFieldWrap) {
+		nameFieldWrap.hidden = !signup;
+	}
+	if (authName && signup) {
+		authName.required = true;
+	} else if (authName) {
+		authName.required = false;
+	}
+	const pw = authPassword;
+	if (pw) {
+		pw.autocomplete = signup ? 'new-password' : 'current-password';
+		pw.minLength = signup ? 8 : 0;
+	}
+}
+
+function clearAuthInlineError() {
+	if (authInlineError) {
+		authInlineError.textContent = '';
+		authInlineError.hidden = true;
+	}
+}
+
+function showAuthInlineError(text) {
+	if (authInlineError) {
+		authInlineError.textContent = text;
+		authInlineError.hidden = !text.trim();
+	}
+}
+
+function updateBootstrapBanner(message) {
+	if (!bootstrapErrorBanner) {
+		return;
+	}
+	if (message && String(message).trim()) {
+		bootstrapErrorBanner.textContent = message;
+		bootstrapErrorBanner.hidden = false;
+		if (authRetryBtn) {
+			authRetryBtn.hidden = false;
+		}
+	} else {
+		bootstrapErrorBanner.textContent = '';
+		bootstrapErrorBanner.hidden = true;
+		if (authRetryBtn) {
+			authRetryBtn.hidden = true;
+		}
+	}
+}
+
+function setAuthBusy(busy) {
+	if (authSubmitBtn) {
+		authSubmitBtn.disabled = Boolean(busy);
+		authSubmitBtn.textContent = busy ? 'Please wait…' : 'Continue';
+	}
+	if (authRetryBtn) {
+		authRetryBtn.disabled = Boolean(busy);
+	}
+}
+
+function showAuthenticatedShell(show) {
+	if (authGate) {
+		authGate.hidden = show;
+	}
+	if (appWorkspace) {
+		appWorkspace.hidden = !show;
+	}
+}
+
+function resetMainWorkspaceUi() {
+	if (input) {
+		input.value = '';
+	}
+	if (stackTextEl) {
+		stackTextEl.textContent = '';
+	}
+	if (techStackEl) {
+		techStackEl.style.display = 'none';
+	}
+	if (frameworkEl) {
+		frameworkEl.textContent = 'Not generated yet';
+	}
+	renderTable([]);
+	renderTestScript(null);
+	cachedInsightFiles = [];
+	currentInsightsPage = 1;
+	renderCodeInsights([]);
+	if (button) {
+		button.disabled = false;
+		button.textContent = defaultButtonText;
+	}
+	if (syncProjectButton) {
+		syncProjectButton.disabled = false;
+		syncProjectButton.textContent = 'Re-sync';
+	}
+	if (userLabel) {
+		userLabel.textContent = '';
+	}
+}
+
+modeLoginBtn?.addEventListener('click', () => {
+	clearAuthInlineError();
+	setSignupMode(false);
+});
+
+modeSignupBtn?.addEventListener('click', () => {
+	clearAuthInlineError();
+	setSignupMode(true);
+});
+
+authForm?.addEventListener('submit', e => {
+	e.preventDefault();
+	clearAuthInlineError();
+	const email = (authEmail?.value ?? '').trim();
+	const password = authPassword?.value ?? '';
+	const name = (authName?.value ?? '').trim();
+	if (!email || !password) {
+		showAuthInlineError('Email and password are required.');
+		return;
+	}
+	if (signupMode) {
+		if (!name) {
+			showAuthInlineError('Name is required to create an account.');
+			return;
+		}
+		vscode.postMessage({ command: 'signup', name, email, password });
+	} else {
+		vscode.postMessage({ command: 'login', email, password });
+	}
+});
+
+authRetryBtn?.addEventListener('click', () => {
+	clearAuthInlineError();
+	updateBootstrapBanner('');
+	vscode.postMessage({ command: 'retryAuth' });
+});
+
+logoutButton?.addEventListener('click', () => {
+	vscode.postMessage({ command: 'logout' });
+});
+
+setSignupMode(false);
+showAuthenticatedShell(false);
 
 function updateInsightsPanelVisibility() {
+	if (!insightsPanel) {
+		return;
+	}
 	insightsPanel.style.display = isInsightsPanelOpen ? 'block' : 'none';
 	insightsVisibilityButton?.setAttribute('aria-expanded', isInsightsPanelOpen ? 'true' : 'false');
 	if (insightsVisibilityArrow) {
@@ -41,30 +226,32 @@ function updateInsightsPanelVisibility() {
 }
 
 function setLoading(isLoading) {
+	if (!button) {
+		return;
+	}
 	button.disabled = isLoading;
 	button.textContent = isLoading ? 'Generating...' : defaultButtonText;
 }
 
 function updateExportButton() {
+	if (!exportButton) {
+		return;
+	}
 	exportButton.disabled = !hasGeneratedRows || isExporting;
 	exportButton.textContent = isExporting ? 'Exporting...' : defaultExportButtonText;
 }
 
-function escapeHtml(value) {
-	return String(value ?? '')
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;');
-}
-
 function prefillPrompt(functionName) {
+	if (!input) {
+		return;
+	}
 	input.value = `Generate test cases for ${functionName}`;
 	input.focus();
 }
 
 function renderInsightsPagination(totalFiles) {
 	const totalPages = Math.ceil(totalFiles / INSIGHTS_PAGE_SIZE);
-	if (totalPages <= 1) {
+	if (totalPages <= 1 || !insightsList) {
 		return '';
 	}
 
@@ -78,7 +265,14 @@ function renderInsightsPagination(totalFiles) {
 }
 
 function renderCodeInsights(files) {
-	if (!Array.isArray(files) || files.length === 0) {
+	const list = Array.isArray(files) ? files : [];
+	cachedInsightFiles = list;
+
+	if (!insightsEmpty || !insightsList) {
+		return;
+	}
+
+	if (list.length === 0) {
 		insightsEmpty.style.display = 'block';
 		insightsList.style.display = 'none';
 		insightsList.innerHTML = '';
@@ -86,14 +280,14 @@ function renderCodeInsights(files) {
 		return;
 	}
 
-	const totalPages = Math.max(1, Math.ceil(files.length / INSIGHTS_PAGE_SIZE));
+	const totalPages = Math.max(1, Math.ceil(list.length / INSIGHTS_PAGE_SIZE));
 	if (currentInsightsPage > totalPages) {
 		currentInsightsPage = totalPages;
 	}
 
 	const start = (currentInsightsPage - 1) * INSIGHTS_PAGE_SIZE;
 	const end = start + INSIGHTS_PAGE_SIZE;
-	const visibleFiles = files.slice(start, end);
+	const visibleFiles = list.slice(start, end);
 
 	const sections = visibleFiles.map(file => {
 		const normalizedPath = String(file.filePath || '').replaceAll('\\', '/');
@@ -103,7 +297,6 @@ function renderCodeInsights(files) {
 
 		const functions = (file.functions || [])
 			.map(fn => {
-				// Handle both string (legacy) and object (new semantic layer)
 				const fnName = typeof fn === 'string' ? fn : (fn.name || 'unknown');
 				const fnSignature = typeof fn === 'string' ? '' : (fn.signature || '');
 				const displayText = fnSignature ? `${fnName}${fnSignature}` : fnName;
@@ -144,7 +337,7 @@ function renderCodeInsights(files) {
 		`;
 	}).join('');
 
-	insightsList.innerHTML = `${sections}${renderInsightsPagination(files.length)}`;
+	insightsList.innerHTML = `${sections}${renderInsightsPagination(list.length)}`;
 	insightsEmpty.style.display = 'none';
 	insightsList.style.display = 'block';
 
@@ -158,12 +351,16 @@ function renderCodeInsights(files) {
 		pageBtn.addEventListener('click', () => {
 			const page = Number(pageBtn.dataset.page || '1');
 			currentInsightsPage = Number.isFinite(page) ? Math.max(1, page) : 1;
-			renderCodeInsights(files);
+			renderCodeInsights(cachedInsightFiles);
 		});
 	}
 }
 
 function renderTable(testCases) {
+	if (!previewBody || !exportButton) {
+		return;
+	}
+
 	if (!Array.isArray(testCases) || testCases.length === 0) {
 		previewBody.innerHTML = '<tr><td colspan="8" class="empty-row">No test cases generated yet.</td></tr>';
 		hasGeneratedRows = false;
@@ -193,7 +390,7 @@ function renderTable(testCases) {
 
 /** @param {unknown} testScript */
 function renderTestScript(testScript) {
-	if (!scriptUiEnabled) {
+	if (!scriptUiEnabled || !scriptSection || !scriptPre) {
 		return;
 	}
 
@@ -212,43 +409,53 @@ function renderTestScript(testScript) {
 	const filename = typeof ts.filename === 'string' && ts.filename.trim() ? ts.filename.trim() : 'generated.test.js';
 	const fw = ts.framework != null ? String(ts.framework) : '';
 	const lang = ts.language != null ? String(ts.language) : '';
-	scriptMeta.textContent = [
-		fw && `Framework: ${fw}`,
-		lang && `Language: ${lang}`,
-		`File: tests/${filename}`
-	]
-		.filter(Boolean)
-		.join(' · ');
+	if (scriptMeta) {
+		scriptMeta.textContent = [
+			fw && `Framework: ${fw}`,
+			lang && `Language: ${lang}`,
+			`File: tests/${filename}`
+		]
+			.filter(Boolean)
+			.join(' · ');
+	}
 	scriptPre.textContent = code;
 	currentScript = { filename, code };
 	scriptSection.style.display = '';
 }
 
 function submitPrompt() {
+	if (!mainUiAuthorized) {
+		return;
+	}
 	setLoading(true);
 	vscode.postMessage({
 		command: 'generate',
-		prompt: input.value.trim()
+		prompt: (input?.value ?? '').trim()
 	});
 }
 
 const syncProjectButton = document.getElementById('syncProjectButton');
 
-button.addEventListener('click', submitPrompt);
+button?.addEventListener('click', submitPrompt);
 
 syncProjectButton?.addEventListener('click', () => {
+	if (!mainUiAuthorized) {
+		return;
+	}
 	syncProjectButton.disabled = true;
 	syncProjectButton.textContent = 'Syncing...';
 	vscode.postMessage({ command: 'syncProject' });
-	
-	// Reset UI after 2 seconds assuming sync is fast
+
 	setTimeout(() => {
 		syncProjectButton.disabled = false;
 		syncProjectButton.textContent = 'Re-sync';
 	}, 2000);
 });
 
-exportButton.addEventListener('click', () => {
+exportButton?.addEventListener('click', () => {
+	if (!mainUiAuthorized) {
+		return;
+	}
 	vscode.postMessage({ command: 'exportExcel' });
 });
 
@@ -269,6 +476,9 @@ saveScriptButton?.addEventListener('click', () => {
 });
 
 refreshInsightsButton?.addEventListener('click', () => {
+	if (!mainUiAuthorized) {
+		return;
+	}
 	currentInsightsPage = 1;
 	vscode.postMessage({ command: 'refreshCodeInsights' });
 });
@@ -280,7 +490,7 @@ insightsVisibilityButton?.addEventListener('click', () => {
 
 updateInsightsPanelVisibility();
 
-input.addEventListener('keydown', event => {
+input?.addEventListener('keydown', event => {
 	if (event.key === 'Enter') {
 		submitPrompt();
 	}
@@ -292,23 +502,96 @@ vscode.postMessage({
 
 window.addEventListener('message', event => {
 	const message = event.data;
+
+	if (message.command === 'authState') {
+		const authenticated = Boolean(message.authenticated);
+		const needsBackend = Boolean(message.needsBackendUrl);
+		clearAuthInlineError();
+		updateBootstrapBanner(authenticated ? '' : message.bootstrapError);
+
+		mainUiAuthorized = authenticated;
+
+		if (needsBackendBanner) {
+			needsBackendBanner.hidden = authenticated || !needsBackend;
+		}
+
+		if (authenticated) {
+			showAuthenticatedShell(true);
+			const display = message.user?.name?.trim?.() || message.user?.email || '';
+			if (userLabel && display) {
+				userLabel.textContent = display;
+			}
+		} else {
+			showAuthenticatedShell(false);
+			if (userLabel) {
+				userLabel.textContent = '';
+			}
+			resetMainWorkspaceUi();
+		}
+		return;
+	}
+
+	if (message.command === 'authError') {
+		const m = typeof message.message === 'string' ? message.message : 'Something went wrong.';
+		showAuthInlineError(m);
+		return;
+	}
+
+	if (message.command === 'authErrorClear') {
+		clearAuthInlineError();
+		return;
+	}
+
+	if (message.command === 'authBusy') {
+		setAuthBusy(Boolean(message.busy));
+		return;
+	}
+
+	if (message.command === 'resetMainUi') {
+		resetMainWorkspaceUi();
+		return;
+	}
+
 	if (message.command === 'init') {
-		stackTextEl.textContent = message.detectedStack;
-		techStackEl.style.display = 'block';
-		if (message.recommendedTestingFramework) {
+		if (!mainUiAuthorized) {
+			return;
+		}
+		if (stackTextEl && message.detectedStack != null) {
+			stackTextEl.textContent = message.detectedStack;
+		}
+		if (techStackEl) {
+			techStackEl.style.display = 'block';
+		}
+		if (frameworkEl && message.recommendedTestingFramework) {
 			frameworkEl.textContent = message.recommendedTestingFramework;
 		}
 	} else if (message.command === 'result') {
+		if (!mainUiAuthorized) {
+			return;
+		}
 		const testCases = Array.isArray(message.testCases) ? message.testCases : [];
-		frameworkEl.textContent = message.recommendedTestingFramework || 'Not specified';
+		if (frameworkEl) {
+			frameworkEl.textContent = message.recommendedTestingFramework || 'Not specified';
+		}
 		renderTable(testCases);
 		renderTestScript(message.testScript);
 		setLoading(false);
 	} else if (message.command === 'exportStatus') {
+		if (!mainUiAuthorized) {
+			return;
+		}
 		isExporting = Boolean(message.isExporting);
 		updateExportButton();
 	} else if (message.command === 'codeInsights') {
+		if (!mainUiAuthorized) {
+			return;
+		}
 		currentInsightsPage = 1;
 		renderCodeInsights(message.files || []);
+	} else if (message.command === 'sessionLoaded') {
+		if (!mainUiAuthorized) {
+			return;
+		}
+		/** Reserved for chat history UI; backend already scopes by user + projectId. */
 	}
 });
