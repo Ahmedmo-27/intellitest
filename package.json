@@ -2,7 +2,7 @@
   "name": "debuggo",
   "displayName": "Debuggo",
   "description": "A VS Code extension that helps junior testers generate structured test cases by applying standard software testing techniques based on project context.",
-  "version": "0.0.4",
+  "version": "0.0.6",
   "publisher": "IntelliTest",
   "license": "MIT",
   "engines": {
@@ -28,11 +28,14 @@
     "url": "https://github.com/mohamedelziat50/intellitest/issues"
   },
   "homepage": "https://github.com/mohamedelziat50/intellitest#readme",
+  "overrides": {
+    "supports-color": "7.2.0"
+  },
   "type": "module",
   "activationEvents": [
     "onView:debuggoView"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.cjs",
   "contributes": {
     "configuration": {
       "title": "Debuggo",
@@ -64,14 +67,23 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile:tsc && npm run bundle:prod",
+    "compile:tsc": "node scripts/ensure-out-package.mjs && node ./node_modules/typescript/lib/tsc.js -p ./",
+    "bundle": "node scripts/bundle-extension.mjs",
+    "bundle:prod": "node scripts/bundle-extension.mjs --minify",
+    "compile": "npm run compile:tsc && npm run bundle",
+    "watch:tsc": "node scripts/ensure-out-package.mjs && node ./node_modules/typescript/lib/tsc.js -watch -p ./",
+    "watch:bundle": "node scripts/bundle-extension.mjs --watch",
+    "watch": "concurrently -k \"npm:watch:tsc\" \"npm:watch:bundle\"",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
     "website": "node website-server.js",
-    "vsce:publish-patch": "npx @vscode/vsce publish patch --no-git-tag-version"
+    "vsce:publish-patch": "npx @vscode/vsce publish patch --no-git-tag-version",
+    "vsce:package-prod": "npm ci && npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -79,13 +91,12 @@
     "@types/vscode": "^1.110.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
+    "axios": "^1.14.0",
+    "concurrently": "^9.2.1",
+    "esbuild": "^0.28.0",
     "eslint": "^9.39.3",
     "express": "^4.21.2",
-    "typescript-eslint": "^8.56.1"
-  },
-  "dependencies": {
-    "axios": "^1.14.0",
-    "xlsx": "^0.18.5",
-    "typescript": "^5.9.3"
+    "typescript-eslint": "^8.56.1",
+    "xlsx": "^0.18.5"
   }
 }
