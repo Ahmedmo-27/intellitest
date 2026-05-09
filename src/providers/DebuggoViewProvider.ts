@@ -12,7 +12,6 @@ import {
 import { UnauthorizedApiError } from '../errors/unauthorized.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel, readTestCasesFromExcel } from '../services/excel.js';
-import { detectTechStack } from '../services/techStack.js';
 import { generateTestCodeWithGroq } from '../services/groqTestCode.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
 import type { IntelliGenerationResult } from '../types/testCases.js';
@@ -276,6 +275,163 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			void vscode.window.showErrorMessage(`Debuggo generation failed: ${errorMessage}`);
 		}
+	}
+
+	// ── Generate Test Code (Groq) ─────────────────────────────────────────────────
+
+	private async handleGenerateTestCode(): Promise<void> {
+		const notifyError = (msg: string) => {
+			void vscode.window.showErrorMessage(`IntelliTest: ${msg}`);
+			void this.view?.webview.postMessage({ command: 'testCode', testScript: null });
+		};
+
+		// ── Step 1: Resolve test cases ────────────────────────────────────────────
+		// Prefer in-memory test cases; fall back to reading the last exported Excel.
+
+		let testCases = this.latestGenerated.testCases;
+
+		if (testCases.length === 0) {
+			// Try to read from the last known Excel file
+			if (!this.lastExcelPath) {
+				notifyError(
+					'No test cases found in memory and no Excel file has been exported yet.\n' +
+					'Generate test cases first, then click "Generate Test Code".'
+				);
+				return;
+			}
+
+			try {
+				testCases = readTestCasesFromExcel(this.lastExcelPath);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				notifyError(`Excel file cannot be parsed — ${msg}`);
+				return;
+			}
+
+			if (testCases.length === 0) {
+				notifyError('The Excel file is empty. Generate test cases first.');
+				return;
+			}
+		}
+
+		// ── Step 2: Validate Groq credentials ────────────────────────────────────
+
+		const apiKey = process.env.API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+		const model  = process.env.API_MODEL?.trim().replace(/^['"]|['"]$/g, '') ?? 'llama-3.3-70b-versatile';
+
+		if (!apiKey) {
+			notifyError(
+				'Groq API key is missing.\n' +
+				'Add API_KEY=your_groq_key to the root .env file and restart the extension.'
+			);
+			return;
+		}
+
+		// ── Step 3: Call Groq ─────────────────────────────────────────────────────
+
+		void vscode.window.showInformationMessage(
+			'IntelliTest: Generating test code from Excel test cases using Groq...'
+		);
+
+		let code: string;
+		try {
+			code = await vscode.window.withProgress(
+				{
+					location: vscode.ProgressLocation.Notification,
+					title: 'IntelliTest: Generating test code from Excel test cases using Groq...',
+					cancellable: false
+				},
+				async () => generateTestCodeWithGroq(
+					testCases,
+					this.recommendedTestingFramework,
+					apiKey,
+					model
+				)
+			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			notifyError(`Groq API request failed — ${msg}`);
+			return;
+		}
+
+		if (!code.trim()) {
+			notifyError('Groq returned empty test code. Please try again.');
+			return;
+		}
+
+		// ── Step 4: Determine output filename ─────────────────────────────────────
+
+		const filename = this.resolveTestCodeFilename();
+		const language = this.resolveLanguage();
+
+		// ── Step 5: Send to webview for preview ───────────────────────────────────
+
+		void this.view?.webview.postMessage({
+			command: 'testCode',
+			testScript: {
+				framework: this.recommendedTestingFramework,
+				language,
+				filename,
+				code
+			}
+		});
+
+		// ── Step 6: Save to generated-tests/ and open in editor ──────────────────
+
+		try {
+			await this.saveAndOpenTestCode(filename, code);
+			void vscode.window.showInformationMessage(
+				`IntelliTest: Test code generated successfully → generated-tests/${filename}`
+			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			notifyError(`File save failed — ${msg}`);
+		}
+	}
+
+	/** Picks a filename based on the detected testing framework. */
+	private resolveTestCodeFilename(): string {
+		const fw = this.recommendedTestingFramework.toLowerCase();
+		if (fw.includes('pytest') || fw.includes('python')) {
+			return 'generatedTestCode.py';
+		}
+		if (fw.includes('junit') || fw.includes('java')) {
+			return 'GeneratedTestCode.java';
+		}
+		return 'generatedTestCode.spec.js';
+	}
+
+	/** Returns a language label for the script section metadata. */
+	private resolveLanguage(): string {
+		const fw = this.recommendedTestingFramework.toLowerCase();
+		if (fw.includes('pytest') || fw.includes('python')) { return 'python'; }
+		if (fw.includes('junit') || fw.includes('java')) { return 'java'; }
+		return 'javascript';
+	}
+
+	/** Saves generated code to generated-tests/<filename> and opens it in the editor. */
+	private async saveAndOpenTestCode(filename: string, code: string): Promise<void> {
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		if (!folder) {
+			void vscode.window.showWarningMessage(
+				'IntelliTest: No workspace folder open — test code was not saved to disk.'
+			);
+			return;
+		}
+
+		const outputDir = vscode.Uri.joinPath(folder.uri, 'generated-tests');
+
+		try {
+			await vscode.workspace.fs.stat(outputDir);
+		} catch {
+			await vscode.workspace.fs.createDirectory(outputDir);
+		}
+
+		const target = vscode.Uri.joinPath(outputDir, filename);
+		await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(code));
+
+		const doc = await vscode.workspace.openTextDocument(target);
+		await vscode.window.showTextDocument(doc, { preview: false });
 	}
 
 	// ── Clipboard / file ops ──────────────────────────────────────────────────────

@@ -1,51 +1,42 @@
-(function () {
-	'use strict';
+const vscode = acquireVsCodeApi();
 
-	const vscode = acquireVsCodeApi();
+const input = document.getElementById('promptInput');
+const button = document.getElementById('generateButton');
+const exportButton = document.getElementById('exportButton');
+const generateCodeButton = document.getElementById('generateCodeButton');
+const techStackEl = document.getElementById('techStack');
+const stackTextEl = document.getElementById('stackText');
+const frameworkEl = document.getElementById('framework');
+const previewBody = document.getElementById('previewBody');
+const insightsPanel = document.getElementById('insightsPanel');
+const insightsEmpty = document.getElementById('insightsEmpty');
+const insightsList = document.getElementById('insightsList');
+const insightsVisibilityButton = document.getElementById('insightsVisibilityButton');
+const insightsVisibilityArrow = document.getElementById('insightsVisibilityArrow');
+const refreshInsightsButton = document.getElementById('refreshInsightsButton');
+const scriptSection = document.getElementById('scriptSection');
+const scriptMeta = document.getElementById('scriptMeta');
+const scriptPre = document.getElementById('scriptPre');
+const copyScriptButton = document.getElementById('copyScriptButton');
+const saveScriptButton = document.getElementById('saveScriptButton');
+const scriptUiEnabled = Boolean(scriptSection && copyScriptButton && saveScriptButton);
+const defaultButtonText = button.textContent;
+const defaultExportButtonText = exportButton.textContent;
+const defaultGenerateCodeText = generateCodeButton ? generateCodeButton.textContent : 'Generate Test Code';
+let hasGeneratedRows = false;
+let isExporting = false;
+let isGeneratingCode = false;
+let isInsightsPanelOpen = true;
+const INSIGHTS_PAGE_SIZE = 8;
+let currentInsightsPage = 1;
+/** @type {{ filename: string, code: string } | null} */
+let currentScript = null;
 
-	const input = document.getElementById('promptInput');
-	const button = document.getElementById('generateButton');
-	const exportButton = document.getElementById('exportButton');
-	const techStackEl = document.getElementById('techStack');
-	const stackTextEl = document.getElementById('stackText');
-	const frameworkEl = document.getElementById('framework');
-	const previewBody = document.getElementById('previewBody');
-	const insightsPanel = document.getElementById('insightsPanel');
-	const insightsEmpty = document.getElementById('insightsEmpty');
-	const insightsList = document.getElementById('insightsList');
-	const insightsVisibilityButton = document.getElementById('insightsVisibilityButton');
-	const insightsVisibilityArrow = document.getElementById('insightsVisibilityArrow');
-	const refreshInsightsButton = document.getElementById('refreshInsightsButton');
-	const scriptSection = document.getElementById('scriptSection');
-	const scriptMeta = document.getElementById('scriptMeta');
-	const scriptPre = document.getElementById('scriptPre');
-	const copyScriptButton = document.getElementById('copyScriptButton');
-	const saveScriptButton = document.getElementById('saveScriptButton');
-	const scriptUiEnabled = Boolean(scriptSection && copyScriptButton && saveScriptButton);
-
-	const defaultButtonText = button?.textContent?.trim() || 'Generate Test Cases';
-	const defaultExportButtonText = exportButton?.textContent?.trim() || 'Export to Excel';
-
-	let hasGeneratedRows = false;
-	let isExporting = false;
-	let isInsightsPanelOpen = true;
-	const INSIGHTS_PAGE_SIZE = 8;
-	let currentInsightsPage = 1;
-	/** @type {{ filename: string, code: string } | null} */
-	let currentScript = null;
-
-	function updateInsightsPanelVisibility() {
-		if (!insightsPanel) {
-			return;
-		}
-		insightsPanel.style.display = isInsightsPanelOpen ? 'block' : 'none';
-		insightsVisibilityButton?.setAttribute('aria-expanded', isInsightsPanelOpen ? 'true' : 'false');
-		if (insightsVisibilityArrow) {
-			insightsVisibilityArrow.textContent = isInsightsPanelOpen ? '▾' : '▸';
-		}
-		if (refreshInsightsButton) {
-			refreshInsightsButton.style.display = isInsightsPanelOpen ? 'inline-flex' : 'none';
-		}
+function updateInsightsPanelVisibility() {
+	insightsPanel.style.display = isInsightsPanelOpen ? 'block' : 'none';
+	insightsVisibilityButton?.setAttribute('aria-expanded', isInsightsPanelOpen ? 'true' : 'false');
+	if (insightsVisibilityArrow) {
+		insightsVisibilityArrow.textContent = isInsightsPanelOpen ? '▾' : '▸';
 	}
 
 	function setLoading(isLoading) {
@@ -55,13 +46,40 @@
 		button.disabled = isLoading;
 		button.textContent = isLoading ? 'Generating...' : defaultButtonText;
 	}
+}
 
-	function updateExportButton() {
-		if (!exportButton) {
-			return;
-		}
-		exportButton.disabled = !hasGeneratedRows || isExporting;
-		exportButton.textContent = isExporting ? 'Exporting...' : defaultExportButtonText;
+function setLoading(isLoading) {
+	button.disabled = isLoading;
+	button.textContent = isLoading ? 'Generating...' : defaultButtonText;
+}
+
+function updateExportButton() {
+	exportButton.disabled = !hasGeneratedRows || isExporting;
+	exportButton.textContent = isExporting ? 'Exporting...' : defaultExportButtonText;
+}
+
+function updateGenerateCodeButton() {
+	if (!generateCodeButton) { return; }
+	generateCodeButton.disabled = !hasGeneratedRows || isGeneratingCode;
+	generateCodeButton.textContent = isGeneratingCode ? 'Generating Code...' : defaultGenerateCodeText;
+}
+
+function escapeHtml(value) {
+	return String(value ?? '')
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;');
+}
+
+function prefillPrompt(functionName) {
+	input.value = `Generate test cases for ${functionName}`;
+	input.focus();
+}
+
+function renderInsightsPagination(totalFiles) {
+	const totalPages = Math.ceil(totalFiles / INSIGHTS_PAGE_SIZE);
+	if (totalPages <= 1) {
+		return '';
 	}
 
 	function escapeHtml(value) {
@@ -183,17 +201,14 @@
 		}
 	}
 
-	function renderTable(testCases) {
-		if (!previewBody) {
-			return;
-		}
-
-		if (!Array.isArray(testCases) || testCases.length === 0) {
-			previewBody.innerHTML = '<tr><td colspan="8" class="empty-row">No test cases generated yet.</td></tr>';
-			hasGeneratedRows = false;
-			updateExportButton();
-			return;
-		}
+function renderTable(testCases) {
+	if (!Array.isArray(testCases) || testCases.length === 0) {
+		previewBody.innerHTML = '<tr><td colspan="8" class="empty-row">No test cases generated yet.</td></tr>';
+		hasGeneratedRows = false;
+		updateExportButton();
+		updateGenerateCodeButton();
+		return;
+	}
 
 		const rows = testCases.map(testCase => {
 			return `
@@ -210,42 +225,83 @@
 		`;
 		}).join('');
 
-		previewBody.innerHTML = rows;
-		hasGeneratedRows = true;
-		updateExportButton();
+	previewBody.innerHTML = rows;
+	hasGeneratedRows = true;
+	updateExportButton();
+	updateGenerateCodeButton();
+}
+
+/** @param {unknown} testScript */
+function renderTestScript(testScript) {
+	if (!scriptUiEnabled) {
+		return;
 	}
 
-	/** @param {unknown} testScript */
-	function renderTestScript(testScript) {
-		if (!scriptUiEnabled || !scriptSection || !scriptMeta || !scriptPre) {
-			return;
-		}
+	if (!testScript || typeof testScript !== 'object') {
+		scriptSection.style.display = 'none';
+		currentScript = null;
+		return;
+	}
+	const ts = /** @type {{ framework?: string, language?: string, filename?: string, code?: string }} */ (testScript);
+	const code = typeof ts.code === 'string' ? ts.code : '';
+	if (!code.trim()) {
+		scriptSection.style.display = 'none';
+		currentScript = null;
+		return;
+	}
+	const filename = typeof ts.filename === 'string' && ts.filename.trim() ? ts.filename.trim() : 'generated.test.js';
+	const fw = ts.framework != null ? String(ts.framework) : '';
+	const lang = ts.language != null ? String(ts.language) : '';
+	scriptMeta.textContent = [
+		fw && `Framework: ${fw}`,
+		lang && `Language: ${lang}`,
+		`File: tests/${filename}`
+	]
+		.filter(Boolean)
+		.join(' · ');
+	scriptPre.textContent = code;
+	currentScript = { filename, code };
+	scriptSection.style.display = '';
+}
 
-		if (!testScript || typeof testScript !== 'object') {
-			scriptSection.style.display = 'none';
-			currentScript = null;
-			return;
-		}
-		const ts = /** @type {{ framework?: string, language?: string, filename?: string, code?: string }} */ (testScript);
-		const code = typeof ts.code === 'string' ? ts.code : '';
-		if (!code.trim()) {
-			scriptSection.style.display = 'none';
-			currentScript = null;
-			return;
-		}
-		const filename = typeof ts.filename === 'string' && ts.filename.trim() ? ts.filename.trim() : 'generated.test.js';
-		const fw = ts.framework != null ? String(ts.framework) : '';
-		const lang = ts.language != null ? String(ts.language) : '';
-		scriptMeta.textContent = [
-			fw && `Framework: ${fw}`,
-			lang && `Language: ${lang}`,
-			`File: tests/${filename}`
-		]
-			.filter(Boolean)
-			.join(' · ');
-		scriptPre.textContent = code;
-		currentScript = { filename, code };
-		scriptSection.style.display = '';
+function submitPrompt() {
+	setLoading(true);
+	vscode.postMessage({
+		command: 'generate',
+		prompt: input.value.trim()
+	});
+}
+
+const syncProjectButton = document.getElementById('syncProjectButton');
+
+button.addEventListener('click', submitPrompt);
+
+syncProjectButton?.addEventListener('click', () => {
+	syncProjectButton.disabled = true;
+	syncProjectButton.textContent = 'Syncing...';
+	vscode.postMessage({ command: 'syncProject' });
+	
+	// Reset UI after 2 seconds assuming sync is fast
+	setTimeout(() => {
+		syncProjectButton.disabled = false;
+		syncProjectButton.textContent = 'Re-sync';
+	}, 2000);
+});
+
+exportButton.addEventListener('click', () => {
+	vscode.postMessage({ command: 'exportExcel' });
+});
+
+generateCodeButton?.addEventListener('click', () => {
+	if (!hasGeneratedRows || isGeneratingCode) { return; }
+	isGeneratingCode = true;
+	updateGenerateCodeButton();
+	vscode.postMessage({ command: 'generateTestCode' });
+});
+
+copyScriptButton?.addEventListener('click', () => {
+	if (currentScript?.code) {
+		vscode.postMessage({ command: 'copyTestScript', code: currentScript.code });
 	}
 
 	function submitPrompt() {
@@ -306,68 +362,21 @@
 		} catch (err) {
 			console.error('Debuggo webview message handler error', err);
 		}
-	});
-
-	try {
-		vscode.postMessage({ command: 'ready' });
-	} catch (err) {
-		console.error('Debuggo webview: ready post failed', err);
-	}
-
-	try {
-		const syncProjectButton = document.getElementById('syncProjectButton');
-
-		button?.addEventListener('click', submitPrompt);
-
-		syncProjectButton?.addEventListener('click', () => {
-			syncProjectButton.disabled = true;
-			syncProjectButton.textContent = 'Syncing...';
-			vscode.postMessage({ command: 'syncProject' });
-
-			setTimeout(() => {
-				syncProjectButton.disabled = false;
-				syncProjectButton.textContent = 'Re-sync';
-			}, 2000);
-		});
-
-		exportButton?.addEventListener('click', () => {
-			vscode.postMessage({ command: 'exportExcel' });
-		});
-
-		copyScriptButton?.addEventListener('click', () => {
-			if (currentScript?.code) {
-				vscode.postMessage({ command: 'copyTestScript', code: currentScript.code });
-			}
-		});
-
-		saveScriptButton?.addEventListener('click', () => {
-			if (currentScript) {
-				vscode.postMessage({
-					command: 'saveTestScript',
-					filename: currentScript.filename,
-					code: currentScript.code
-				});
-			}
-		});
-
-		refreshInsightsButton?.addEventListener('click', () => {
-			currentInsightsPage = 1;
-			vscode.postMessage({ command: 'refreshCodeInsights' });
-		});
-
-		insightsVisibilityButton?.addEventListener('click', () => {
-			isInsightsPanelOpen = !isInsightsPanelOpen;
-			updateInsightsPanelVisibility();
-		});
-
-		updateInsightsPanelVisibility();
-
-		input?.addEventListener('keydown', event => {
-			if (event.key === 'Enter') {
-				submitPrompt();
-			}
-		});
-	} catch (err) {
-		console.error('Debuggo webview: DOM wiring failed', err);
+	} else if (message.command === 'result') {
+		const testCases = Array.isArray(message.testCases) ? message.testCases : [];
+		frameworkEl.textContent = message.recommendedTestingFramework || 'Not specified';
+		renderTable(testCases);
+		renderTestScript(message.testScript);
+		setLoading(false);
+	} else if (message.command === 'exportStatus') {
+		isExporting = Boolean(message.isExporting);
+		updateExportButton();
+	} else if (message.command === 'testCode') {
+		isGeneratingCode = false;
+		updateGenerateCodeButton();
+		renderTestScript(message.testScript);
+	} else if (message.command === 'codeInsights') {
+		currentInsightsPage = 1;
+		renderCodeInsights(message.files || []);
 	}
 })();
