@@ -10,6 +10,7 @@
  */
 
 import axios from 'axios';
+import * as vscode from 'vscode';
 import type { IntelliGenerationResult, TestCaseRow } from '../types/testCases.js';
 import { buildProjectMap } from './projectMap.js';
 import { listProjectRelativePaths } from './codebaseContext.js';
@@ -64,6 +65,7 @@ export type IntentAnalysisResult = {
 	relatedFeatures: string[];
 	relevantFiles: string[];
 	suggestions: string[];
+	isFlowTest?: boolean;
 };
 
 // ── shared helpers ─────────────────────────────────────────────────────────────
@@ -182,6 +184,14 @@ export async function generateViaBackendV2(
 		);
 	}
 
+	// Surfacing Chain Command Awareness to the user!
+	if (intentAnalysis && intentAnalysis.isFlowTest && intentAnalysis.relatedFeatures?.length > 0) {
+		const related = intentAnalysis.relatedFeatures.join(", ");
+		vscode.window.showInformationMessage(
+			`IntelliTest: You requested an E2E flow. We detected this depends on [${related}]. Including these dependencies in the context for accurate root-cause analysis.`
+		);
+	}
+
 	// PASS 2: Targeted Generation
 	// Build map using ONLY the relevant files
 	console.log(`[IntelliTest Pass 2] Building project map with ${relevantFiles ? 'whitelist' : 'full project'}...`);
@@ -250,6 +260,29 @@ export async function analyzeIntentV2(
 		// Non-critical: if intent analysis fails, we can fallback to full map
 		console.warn('IntelliTest: analyzeIntentV2 failed', err);
 		return null;
+	}
+}
+
+/**
+ * POST /project/:projectId/sync — send all files to build the backend Intelligence Graph.
+ */
+export async function syncProject(
+	baseUrl: string,
+	projectId: string,
+	files: string[]
+): Promise<boolean> {
+	const root = baseUrl.replace(/\/$/, '');
+	try {
+		await axios.post(`${root}/project/${encodeURIComponent(projectId)}/sync`, {
+			files
+		}, {
+			timeout: 20_000,
+			headers: { 'Content-Type': 'application/json' }
+		});
+		return true;
+	} catch (err) {
+		console.warn('IntelliTest: syncProject failed', err);
+		return false;
 	}
 }
 

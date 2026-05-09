@@ -1,14 +1,23 @@
 import { loadPrompt, fillPrompt } from "../utils/promptLoader.js";
 
 function projectContextBlock(map) {
-  return [
+  const lines = [
     "Project context (structured):",
-    `- type (web domain / product category, e.g. e-commerce, LMS): ${map.type || "unknown"}`,
     `- language: ${map.language || "unknown"}`,
-    `- framework: ${map.framework || "unknown"}`,
-    `- modules: ${JSON.stringify(map.modules ?? [])}`,
-    `- routes: ${JSON.stringify(map.routes ?? [])}`,
-  ].join("\n");
+    `- framework: ${map.framework || "unknown"}`
+  ];
+
+  // 🔥 FIX: We now inject the highly accurate AST Code Insights directly into the prompt.
+  // We completely removed the generic "routes" and "modules" arrays because they 
+  // bloated the prompt with garbage files.
+  if (map.codeInsights) {
+    lines.push("\n[Target Project File Context - AST Code Insights]:");
+    for (const [file, insights] of Object.entries(map.codeInsights)) {
+      lines.push(`- ${file}: ${insights}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 export function detectFeaturesPrompt(projectMap) {
@@ -29,24 +38,24 @@ function priorityFilesBlock(map) {
     .join("\n")}`;
 }
 
-export function generateTestCasesPrompt(projectMap) {
+export function generateTestCasesPrompt(projectMap, matchResult, restrictInstruction) {
   const ctx = projectContextBlock(projectMap);
   const priorityCtx = priorityFilesBlock(projectMap);
 
   const testerAsk =
     projectMap.prompt && String(projectMap.prompt).trim()
-      ? `\n\nTester request (highest priority — honor explicit scope limits; otherwise broaden sensibly):\n${String(
-          projectMap.prompt
-        ).trim()}\n`
+      ? `\n\nTester request:\n${String(projectMap.prompt).trim()}\n`
       : "";
 
-  return `You are a senior QA engineer. ${ctx}${priorityCtx}${testerAsk}
+  const restrictions = restrictInstruction ? `\n\nCRITICAL SCOPE RESTRICTION:\n${restrictInstruction}\n` : "";
+
+  return `You are a senior QA engineer. ${ctx}${priorityCtx}${testerAsk}${restrictions}
 
 Task: Propose manual test cases that cover critical user flows and edge cases for this system.
 
 Rules:
 - Output ONLY valid JSON (no markdown, no commentary).
-- Return a JSON array of objects. Each object MUST have: "id", "name", "description", "preconditions", "steps", "expected".
+- Return a JSON array of objects. Each object MUST have: "id", "name", "description", "preconditions", "steps", "expected", "comments".
 - Also include "priority": one of "critical", "high", "medium", "low".
 - Include "tags": array of short labels.
 - Keep "description" as a human-readable scenario summary.
@@ -55,7 +64,7 @@ Rules:
 - Order the array so critical items appear first.
 
 Example shape:
-[{"id":"TC-001","name":"...","description":"...","preconditions":"...","steps":["..."],"expected":"...","priority":"critical","tags":["auth"]}]`;
+[{"id":"TC-001","name":"...","description":"...","preconditions":"...","steps":["..."],"expected":"...","priority":"critical","tags":["auth"],"comments":"..."}]`;
 }
 
 export function generateTestScriptsPrompt(projectMap) {
