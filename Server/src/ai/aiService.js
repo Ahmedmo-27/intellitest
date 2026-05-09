@@ -65,7 +65,7 @@ async function callOllama(prompt, signal) {
 }
 
 /**
- * Single call to an OpenAI-compatible HTTP API (Hugging Face, Groq, OpenAI, etc.).
+ * Single call to an OpenAI-compatible HTTP API (Groq, OpenAI, etc.).
  * @param {string} prompt
  * @param {AbortSignal} signal
  * @returns {Promise<string>}
@@ -75,7 +75,7 @@ async function callOpenAICompatible(prompt, signal) {
     throw new AiError(
       "backend",
       "MissingConfig",
-      "API_BASE_URL and API_KEY are required when LLM_PROVIDER=api"
+      "API_BASE_URL and API_KEY (or GROQ_API_KEY) are required when LLM_PROVIDER=api"
     );
   }
 
