@@ -16,17 +16,17 @@
  *   9. Return structured response
  */
 
-import * as promptService  from "../services/promptService.js";
+import * as promptService from "../services/promptService.js";
 import * as projectService from "../services/projectService.js";
 import * as contextService from "../services/contextService.js";
 import * as guardrailService from "../services/guardrailService.js";
 import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
 import { mapPromptToFeatures } from "../services/featureMappingEngine.js";
 import { calculateCoverage } from "../services/coverageEngine.js";
-import * as formatter      from "../utils/formatter.js";
+import * as formatter from "../utils/formatter.js";
 import { logTerminalSection, logger } from "../utils/logger.js";
-import { complete }        from "../ai/aiService.js";
-import { sendError }       from "../utils/errorHandler.js";
+import { complete } from "../ai/aiService.js";
+import { sendError } from "../utils/errorHandler.js";
 import {
   runValidationPipeline,
   makeQuickValidator,
@@ -36,9 +36,9 @@ import {
 // ── Safe fallback (returned alongside error payloads) ─────────────────────────
 
 const FALLBACK_GENERATE = Object.freeze({
-  testCases:   [],
-  scripts:     null,
-  insights:    [],
+  testCases: [],
+  scripts: null,
+  insights: [],
   suggestions: [],
   meta: { fallback: true, message: "AI could not produce valid output. Please try again." },
 });
@@ -50,9 +50,9 @@ const FALLBACK_GENERATE = Object.freeze({
  * @type {import("express").RequestHandler}
  */
 export async function generate(req, res) {
-  const startMs    = Date.now();
-  const userId     = req.userId || req.user?.id; // extracted from authMiddleware
-  const projectId  = req.projectId;          // set by validateGenerate
+  const startMs = Date.now();
+  const userId = req.userId || req.user?.id; // extracted from authMiddleware
+  const projectId = req.projectId;          // set by validateGenerate
   const projectMap = req.projectMap;          // set by validateGenerate
   const userPrompt = projectMap.prompt ?? "";
 
@@ -61,9 +61,9 @@ export async function generate(req, res) {
   logTerminalSection("POST /generate — projectMap", projectMap);
 
   // Mutable state scoped to this request — used in both success + error paths
-  let rawAiOutput      = "";
-  let retryCount       = 0;
-  let aiStatus         = "ok";
+  let rawAiOutput = "";
+  let retryCount = 0;
+  let aiStatus = "ok";
   let validationErrors = [];
 
   try {
@@ -83,18 +83,20 @@ export async function generate(req, res) {
     // ── Step 2.1: Clean Context ───────────────────────────────────────────────
     const cleanedMap = contextService.cleanContext(enrichedMap);
 
-    // ── Step 2.2: Extract Features & Sync to MongoDB ─────────────────────────
-    const extractedFeatures = extractFeatures(cleanedMap, projectId);
-    const relationships = buildFeatureRelationships(extractedFeatures, projectId);
-    
+    // ── Step 2.2: Load Global Intelligence Graph ─────────────────────────────
+    // We no longer build the graph here! It's built globally by /sync.
+    // We just load the existing features from MongoDB to enforce guardrails.
+    let extractedFeatures = [];
     if (userId) {
-      await projectService.syncFeatureIntelligence(userId, projectId, extractedFeatures, relationships);
+      extractedFeatures = await projectService.loadFeatures(userId, projectId);
     }
-    const allowedFeatures = extractedFeatures.map(f => f.normalizedName);
+    const allowedFeatures = extractedFeatures.map(f => f.name || f.normalizedName);
 
     // ── Step 2.5: Guardrail Decision Layer (Feature Intelligence) ─────────────
-    const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, relationships);
-    
+    // Note: relationships are not strictly needed here for validation, but mapPromptToFeatures uses it.
+    // We can pass empty relationships since analyzeIntent already handled the flow targeting.
+    const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, []);
+
     let decision = "allowed";
     if (userPrompt.trim().length > 0) {
       decision = matchResult.matchType;
@@ -135,45 +137,49 @@ export async function generate(req, res) {
     if (decision === "partial") {
       restrictInstruction = `Ignore non-existent features. Focus only on available matched features: ${matchResult.matchedFeatures.join(", ")}.`;
     }
-    
+
+    // 🔥 FIX: Create a strict map from the incoming payload so we don't bloat the LLM
+    // with historical routes from the enriched/cleaned map.
+    const strictMap = contextService.cleanContext(projectMap);
+
     // Pass matchResult so the prompt enforcement layer can limit scope if needed
-    const aiPrompt = promptService.generateTestCasesPrompt(cleanedMap, matchResult, restrictInstruction);
+    const aiPrompt = promptService.generateTestCasesPrompt(strictMap, matchResult, restrictInstruction);
 
     // ── Step 4: AI call with tracking validator ───────────────────────────────
     const validator = makeQuickValidator(TEST_CASES_SCHEMA);
-    let callCount   = 0;
+    let callCount = 0;
     let aiOutputWarning = null;
-    const trackingValidator = (raw) => { 
-      callCount++; 
+    const trackingValidator = (raw) => {
+      callCount++;
       if (!validator(raw)) return false;
-      
+
       // POST-AI Validation: Validate context alignment
       const parsed = formatter.parseTestCasesArray(raw);
       const validationResult = guardrailService.validateAIOutput(parsed, allowedFeatures);
-      
+
       if (validationResult.decision === "warning") {
-         logger.warn("guardrail_hallucination", { 
-           event: "validation", 
-           allowedFeatures, 
-           detectedTerms: validationResult.detectedTerms, 
-           invalidTerms: validationResult.invalidTerms, 
-           decision: validationResult.decision 
-         });
-         
-         aiOutputWarning = `The AI included unknown domain features: ${validationResult.invalidTerms.join(", ")}`;
-         return false; // Force retry. If maxRetries reached, fallback.
+        logger.warn("guardrail_hallucination", {
+          event: "validation",
+          allowedFeatures,
+          detectedTerms: validationResult.detectedTerms,
+          invalidTerms: validationResult.invalidTerms,
+          decision: validationResult.decision
+        });
+
+        aiOutputWarning = `The AI included unknown domain features: ${validationResult.invalidTerms.join(", ")}`;
+        return false; // Force retry. If maxRetries reached, fallback.
       } else {
-         aiOutputWarning = null;
+        aiOutputWarning = null;
       }
       return true;
     };
 
-    rawAiOutput = await complete(aiPrompt, { 
+    rawAiOutput = await complete(aiPrompt, {
       validator: trackingValidator,
       correctionPrompt: `The previous response hallucinated features. STRICTLY limit your tags and test targets to these known features: [${allowedFeatures.join(", ")}].\n\n`,
       maxRetries: 1 // Limit retries to 1
     });
-    retryCount  = Math.max(0, callCount - 1); // attempt 0 = first call
+    retryCount = Math.max(0, callCount - 1); // attempt 0 = first call
 
     // ── Step 5: Full validation pipeline ─────────────────────────────────────
     const validation = runValidationPipeline(rawAiOutput, TEST_CASES_SCHEMA);
@@ -201,14 +207,14 @@ export async function generate(req, res) {
         projectService.saveGeneration({
           userId,
           projectId,
-          prompt:           aiPrompt,
+          prompt: aiPrompt,
           normalizedPrompt: userPrompt,
-          projectMap:       cleanedMap,
-          response:         rawAiOutput,
+          projectMap: cleanedMap,
+          response: rawAiOutput,
           latencyMs,
           retryCount,
-          status:           aiStatus,
-          isValid:          validation.ok,
+          status: aiStatus,
+          isValid: validation.ok,
           validationErrors,
         }),
       ]);
@@ -231,7 +237,7 @@ export async function generate(req, res) {
           missingTestAreas: cov.missingAreas
         });
       }
-      
+
       // Kept for backward compatibility if needed:
       const oldFeatures = contextService.extractTestFeatures(testCases);
       await projectService.upsertFeatures(userId, projectId, oldFeatures);
@@ -240,16 +246,16 @@ export async function generate(req, res) {
     // ── Step 9: Respond ───────────────────────────────────────────────────────
     const responsePayload = {
       testCases,
-      scripts:     null,
-      insights:    contextService.insightsToArray(enrichedMap.codeInsights),
+      scripts: null,
+      insights: contextService.insightsToArray(enrichedMap.codeInsights),
       suggestions: [],
-      features:    returnedFeatures,
+      features: returnedFeatures,
       meta: {
         projectId,
         latencyMs,
         retryCount,
         contextVersion: context?.contextVersion ?? 1,
-        fallback:       aiStatus === "fallback",
+        fallback: aiStatus === "fallback",
         matchConfidence: matchResult.confidence
       },
     };
@@ -257,7 +263,7 @@ export async function generate(req, res) {
     if (matchResult.matchType === "partial") {
       responsePayload.warning = "Prompt only partially matched the project context. The output has been limited to known features.";
     }
-    
+
     if (aiOutputWarning) {
       responsePayload.warning = (responsePayload.warning ? responsePayload.warning + " " : "") + aiOutputWarning;
     }
@@ -274,12 +280,12 @@ export async function generate(req, res) {
         .saveGeneration({
           userId,
           projectId,
-          prompt:           aiPrompt_safe(req.projectMap),
-          response:         rawAiOutput,
+          prompt: aiPrompt_safe(req.projectMap),
+          response: rawAiOutput,
           latencyMs,
           retryCount,
-          status:           "error",
-          isValid:          false,
+          status: "error",
+          isValid: false,
           validationErrors: [err.message],
         })
         .catch((dbErr) =>
@@ -299,26 +305,51 @@ export async function analyzeIntent(req, res) {
   try {
     const { prompt, projectId, files } = req.body;
     if (!prompt) return res.json({ decision: "none", matchedFeatures: [], relatedFeatures: [], relevantFiles: [] });
-    
-    // We create a mock projectMap to run feature extraction on the lightweight file list
+
+    // We create a mock projectMap to run feature extraction on the lightweight file list.
+    // 🔥 FIX: We pass 'null' instead of projectId to explicitly bypass the backend cache.
+    // This ensures that if the user just created a new file in VS Code 2 seconds ago,
+    // the intent analyzer will instantly know about it without needing a "Reset Cache" button!
     const mockMap = { files: files || [] };
-    const extractedFeatures = extractFeatures(mockMap, projectId);
-    const relationships = buildFeatureRelationships(extractedFeatures, projectId);
-    
+    const extractedFeatures = extractFeatures(mockMap, null);
+    const relationships = buildFeatureRelationships(extractedFeatures, null);
+
     const matchResult = mapPromptToFeatures(prompt, extractedFeatures, relationships);
-    
+
     // Collect all relevant files from matched and related features
     const relevantFilesSet = new Set();
     const matchedFeatureNames = matchResult.features.map(f => f.name);
-    
+
     for (const mf of matchResult.features) {
       if (mf.files) mf.files.forEach(f => relevantFilesSet.add(f));
     }
-    
+
+    // Detect if the user wants an E2E/Flow test (Chain Command Awareness)
+    const isFlowTest = /flow|e2e|integration|process|end to end/i.test(prompt);
     const relatedFeatureNames = matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name));
-    for (const rf of relatedFeatureNames) {
-      const feat = extractedFeatures.find(f => f.normalizedName === rf);
-      if (feat && feat.files) feat.files.forEach(f => relevantFilesSet.add(f));
+
+    // If it's a flow test, we traverse the dependency graph and pull in the whole chain!
+    if (isFlowTest) {
+      for (const rf of relatedFeatureNames) {
+        const feat = extractedFeatures.find(f => f.normalizedName === rf);
+        if (feat && feat.files) {
+          // 🔥 FIX: Instead of an arbitrary slice(0, 5), we intelligently rank the files.
+          // We prioritize files that are likely the "core" of the dependency (services, controllers, 
+          // or files that directly contain the feature name).
+          const allFiles = Array.from(feat.files);
+          
+          const coreFiles = allFiles.filter(f => 
+            f.toLowerCase().includes(rf) || 
+            /service|controller|api|route|index/i.test(f)
+          );
+          
+          // Fallback to other files if we didn't find clear "core" files
+          const finalFiles = coreFiles.length > 0 ? coreFiles : allFiles;
+          
+          // Cap at 10 to protect the parser, but now we know we have the most important ones.
+          finalFiles.slice(0, 10).forEach(f => relevantFilesSet.add(f));
+        }
+      }
     }
 
     return res.json({
@@ -326,6 +357,7 @@ export async function analyzeIntent(req, res) {
       matchedFeatures: matchedFeatureNames,
       relatedFeatures: relatedFeatureNames,
       relevantFiles: Array.from(relevantFilesSet),
+      isFlowTest: isFlowTest,
       suggestions: matchResult.suggestions || []
     });
   } catch (err) {

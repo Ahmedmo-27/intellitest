@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { generateViaBackend, generateViaBackendV2, loadProjectSession } from '../services/backendClient.js';
+import { generateViaBackend, generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel } from '../services/excel.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
@@ -8,6 +8,7 @@ import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
 import type { WebviewMessage } from '../types/messages.js';
 import { getWebviewHtml } from '../webview/template.js';
 import { getOrCreateProjectId } from '../utils/projectId.js';
+import { listProjectRelativePaths } from '../services/codebaseContext.js';
 
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
@@ -59,6 +60,9 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 				case 'generate':
 					void this.handleGenerate(message.prompt);
 					break;
+				case 'syncProject':
+					void this.handleSyncProject();
+					break;
 				case 'exportExcel':
 					void this.handleExportExcel();
 					break;
@@ -78,7 +82,9 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					});
 					// 2. Load previous session from server
 					void this.loadAndPostSession();
-					// 3. Load code insights
+					// 3. Auto-sync the project map globally in the background
+					void this.handleSyncProject(true);
+					// 4. Load code insights
 					void this.postCodeInsights();
 					break;
 				case 'refreshCodeInsights':
@@ -122,6 +128,48 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.warn(`IntelliTest: could not load previous session — ${msg}`);
 		}
+	}
+
+	// ── Sync Project ─────────────────────────────────────────────────────────────
+
+	private async handleSyncProject(silent = false): Promise<void> {
+		const backendUrl =
+			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			if (!silent) void vscode.window.showErrorMessage('Please configure IntelliTest Backend URL in settings.');
+			return;
+		}
+
+		const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (!workspaceRootPath) {
+			return;
+		}
+
+		// Grab lightweight file list (all 1000+ files)
+		const allFiles = listProjectRelativePaths(workspaceRootPath, 2000);
+		
+		if (silent) {
+			// Auto-sync in the background
+			await syncProject(backendUrl, this.projectId, allFiles).catch(() => {});
+			return;
+		}
+		
+		void vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: 'IntelliTest: Building Global Intelligence Graph...',
+				cancellable: false
+			},
+			async () => {
+				const success = await syncProject(backendUrl, this.projectId, allFiles);
+				if (success) {
+					void vscode.window.showInformationMessage('IntelliTest: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.');
+				} else {
+					void vscode.window.showErrorMessage('IntelliTest: Failed to sync project map. Check backend server logs.');
+				}
+			}
+		);
 	}
 
 	// ── Generate ─────────────────────────────────────────────────────────────────

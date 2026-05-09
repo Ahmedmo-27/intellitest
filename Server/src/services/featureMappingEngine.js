@@ -26,23 +26,23 @@ function scoreMatch(promptTokens, featureTokens) {
       score += 1.0; // exact match
       continue;
     }
-    
+
     let matched = false;
     for (const [key, syns] of Object.entries(SYNONYMS)) {
-       if ((ft === key && promptTokens.some(pt => syns.includes(pt))) ||
-           (syns.includes(ft) && promptTokens.includes(key))) {
-           score += 0.7; // synonym
-           matched = true;
-           break;
-       }
+      if ((ft === key && promptTokens.some(pt => syns.includes(pt))) ||
+        (syns.includes(ft) && promptTokens.includes(key))) {
+        score += 0.7; // synonym
+        matched = true;
+        break;
+      }
     }
     if (matched) continue;
 
     for (const pt of promptTokens) {
-        if (pt.includes(ft) || ft.includes(pt)) {
-            score += 0.4; // partial word
-            break;
-        }
+      if (pt.includes(ft) || ft.includes(pt)) {
+        score += 0.4; // partial word
+        break;
+      }
     }
   }
   return score / featureTokens.length;
@@ -50,10 +50,10 @@ function scoreMatch(promptTokens, featureTokens) {
 
 export function mapPromptToFeatures(prompt, featuresInDb, relationshipsInDb) {
   const result = {
-      decision: "none",
-      features: [],
-      warnings: [],
-      suggestions: []
+    decision: "none",
+    features: [],
+    warnings: [],
+    suggestions: []
   };
 
   if (!prompt || typeof prompt !== "string") return result;
@@ -62,55 +62,55 @@ export function mapPromptToFeatures(prompt, featuresInDb, relationshipsInDb) {
   if (promptTokens.length === 0) return result;
 
   const scoredFeatures = [];
-  
-  for (const feature of featuresInDb) {
-      const featureTokens = normalize(feature.normalizedName);
-      let matchScore = scoreMatch(promptTokens, featureTokens);
-      
-      if (matchScore > 0) {
-          // Apply Priority Boost
-          const boost = BOOSTS[feature.normalizedName] || feature.importanceScore || 0.5;
-          const finalScore = matchScore * boost;
 
-          scoredFeatures.push({
-              feature,
-              score: finalScore
-          });
-      }
+  for (const feature of featuresInDb) {
+    const featureTokens = normalize(feature.normalizedName);
+    let matchScore = scoreMatch(promptTokens, featureTokens);
+
+    if (matchScore > 0) {
+      // Apply Priority Boost
+      const boost = BOOSTS[feature.normalizedName] || feature.importanceScore || 0.5;
+      const finalScore = matchScore * boost;
+
+      scoredFeatures.push({
+        feature,
+        score: finalScore
+      });
+    }
   }
 
   scoredFeatures.sort((a, b) => b.score - a.score);
 
   if (scoredFeatures.length === 0) {
-      result.decision = "none";
-      result.warnings.push("No matching features found. Please specify a valid domain feature.");
-      result.suggestions = featuresInDb.slice(0, 5).map(f => f.normalizedName);
-      return result;
+    result.decision = "none";
+    result.warnings.push("No matching features found. Please specify a valid domain feature.");
+    result.suggestions = featuresInDb.slice(0, 5).map(f => f.normalizedName);
+    return result;
   }
 
   const topScore = scoredFeatures[0].score;
   result.decision = topScore >= 0.8 ? "strong" : "partial";
-  
+
   if (result.decision === "partial") {
-      result.warnings.push("Partial match detected. Falling back to related features.");
+    result.warnings.push("Partial match detected. Falling back to related features.");
   }
 
   // Compile matched features
   for (const sf of scoredFeatures) {
-      if (sf.score < 0.3) continue; // Noise filter
-      
-      const relatedFeatures = relationshipsInDb
-        .filter(r => r.source === sf.feature.normalizedName)
-        .map(r => ({ name: r.target, type: r.type }));
+    if (sf.score < 0.3) continue; // Noise filter
 
-      result.features.push({
-          name: sf.feature.normalizedName,
-          files: sf.feature.files,
-          relatedFeatures: relatedFeatures,
-          coverage: 0, 
-          confidence: sf.score,
-          missingTestAreas: []
-      });
+    const relatedFeatures = relationshipsInDb
+      .filter(r => r.source === sf.feature.normalizedName)
+      .map(r => ({ name: r.target, type: r.type }));
+
+    result.features.push({
+      name: sf.feature.normalizedName,
+      files: sf.feature.files,
+      relatedFeatures: relatedFeatures,
+      coverage: 0,
+      confidence: sf.score,
+      missingTestAreas: []
+    });
   }
 
   return result;
@@ -118,13 +118,13 @@ export function mapPromptToFeatures(prompt, featuresInDb, relationshipsInDb) {
 
 export function generateDebugLog(projectId, extractedFeatures, mappingResult) {
   return {
-      event: "feature_pipeline",
-      projectId,
-      extractedFeatureCount: extractedFeatures.length,
-      mappedFeatures: mappingResult.features.map(f => f.name),
-      score: mappingResult.features.length > 0 ? mappingResult.features[0].confidence : 0,
-      decision: mappingResult.decision,
-      coverageSummary: {},
-      warnings: mappingResult.warnings
+    event: "feature_pipeline",
+    projectId,
+    extractedFeatureCount: extractedFeatures.length,
+    mappedFeatures: mappingResult.features.map(f => f.name),
+    score: mappingResult.features.length > 0 ? mappingResult.features[0].confidence : 0,
+    decision: mappingResult.decision,
+    coverageSummary: {},
+    warnings: mappingResult.warnings
   };
 }
