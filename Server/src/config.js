@@ -52,7 +52,7 @@ export const ai = Object.freeze({
   ollamaBase: optionalEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
   ollamaModel: optionalEnv("OLLAMA_MODEL", "llama3.2"),
 
-  // OpenAI-compatible API (Groq, OpenAI, etc.)
+  // OpenAI-compatible API (Hugging Face Router, Groq, OpenAI, etc.)
   apiBase: optionalEnv("API_BASE_URL", ""),
   apiKey: optionalEnv("API_KEY", ""),
   apiModel: optionalEnv("API_MODEL", "gpt-4o-mini"),
