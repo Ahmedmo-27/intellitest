@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import axios from 'axios';
 import { generateViaBackend, generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel, readTestCasesFromExcel } from '../services/excel.js';
@@ -16,6 +17,24 @@ const EMPTY_GENERATION: IntelliGenerationResult = {
 	testCases: [],
 	testScript: null
 };
+
+/**
+ * Fetches Groq credentials from the backend server's /llm-config endpoint.
+ * The backend loads Server/.env via dotenv at startup, so this is the
+ * correct and reliable way to read Server/.env values from the extension.
+ */
+async function fetchLlmConfig(backendUrl: string): Promise<{ apiKey: string; model: string } | null> {
+	try {
+		const res = await axios.get<{ apiKey: string; model: string; baseUrl: string }>(
+			`${backendUrl.replace(/\/$/, '')}/llm-config`,
+			{ timeout: 5_000 }
+		);
+		return { apiKey: res.data.apiKey ?? '', model: res.data.model ?? 'llama-3.3-70b-versatile' };
+	} catch (e) {
+		console.warn('[IntelliTest] Could not fetch /llm-config:', String(e));
+		return null;
+	}
+}
 
 export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'intellitestView';
@@ -269,17 +288,25 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		// ── Step 2: Validate Groq credentials ────────────────────────────────────
+		// Fetch API_KEY and API_MODEL from the backend server's /llm-config endpoint.
+		// The backend already has Server/.env loaded via dotenv — this is the
+		// correct way to read those values without any file path guessing.
 
-		const apiKey = process.env.API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
-		const model  = process.env.API_MODEL?.trim().replace(/^['"]|['"]$/g, '') ?? 'llama-3.3-70b-versatile';
+		const backendUrl =
+			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? 'http://localhost:3000';
 
-		if (!apiKey) {
+		const llmConfig = await fetchLlmConfig(backendUrl);
+
+		if (!llmConfig || !llmConfig.apiKey) {
 			notifyError(
-				'Groq API key is missing.\n' +
-				'Add API_KEY=your_groq_key to the root .env file and restart the extension.'
+				'Could not read Groq API key from the backend.\n' +
+				'Make sure the backend server is running and API_KEY is set in Server/.env.'
 			);
 			return;
 		}
+
+		const apiKey = llmConfig.apiKey;
+		const model  = llmConfig.model || 'llama-3.3-70b-versatile';
 
 		// ── Step 3: Call Groq ─────────────────────────────────────────────────────
 
