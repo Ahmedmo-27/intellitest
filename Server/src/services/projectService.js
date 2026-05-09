@@ -242,30 +242,61 @@ export async function loadFeatures(userId, projectId) {
  * @param {string} projectId
  * @param {Array<object>} features
  */
-export async function syncFeatureIntelligence(userId, projectId, features, relationships) {
-  if (features && features.length > 0) {
-    const ops = features.map(f => ({
-      updateOne: {
-        filter: { userId, projectId, normalizedName: f.normalizedName },
-        update: {
-          $set: {
-            userId,
-            projectId,
-            name: f.name,
-            normalizedName: f.normalizedName,
-            files: f.files ?? [],
-            type: f.type ?? "ui",
-            importanceScore: f.importanceScore ?? 0.5,
-          },
-        },
-        upsert: true,
-      },
-    }));
-    await Feature.bulkWrite(ops, { ordered: false });
+function dedupeFeatureBulkOps(userId, projectId, features) {
+  const merged = new Map();
+  for (const f of features) {
+    const key = String(f.normalizedName ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    if (!key || key.startsWith(".")) continue;
+
+    const files = Array.isArray(f.files) ? f.files : [];
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        canonicalName: key,
+        displayName: String(f.name ?? key).trim() || key,
+        type: f.type ?? "ui",
+        importanceScore: f.importanceScore ?? 0.5,
+        files: new Set(files),
+      });
+    } else {
+      for (const file of files) existing.files.add(file);
+      existing.importanceScore = Math.max(
+        existing.importanceScore,
+        f.importanceScore ?? 0.5,
+      );
+    }
   }
 
-  if (relationships && relationships.length > 0) {
-    const relOps = relationships.map((r) => ({
+  return [...merged.values()].map((entry) => ({
+    updateOne: {
+      filter: { userId, projectId, normalizedName: entry.canonicalName },
+      update: {
+        $set: {
+          userId,
+          projectId,
+          name: entry.displayName,
+          normalizedName: entry.canonicalName,
+          files: [...entry.files],
+          type: entry.type,
+          importanceScore: entry.importanceScore,
+        },
+      },
+      upsert: true,
+    },
+  }));
+}
+
+function dedupeRelationshipBulkOps(userId, projectId, relationships) {
+  const seen = new Set();
+  const relOps = [];
+  for (const r of relationships) {
+    const k = `${r.source}|${r.target}|${r.type}|${projectId}|${userId}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    relOps.push({
       updateOne: {
         filter: {
           userId,
@@ -285,8 +316,24 @@ export async function syncFeatureIntelligence(userId, projectId, features, relat
         },
         upsert: true,
       },
-    }));
-    await FeatureRelationship.bulkWrite(relOps, { ordered: false });
+    });
+  }
+  return relOps;
+}
+
+export async function syncFeatureIntelligence(userId, projectId, features, relationships) {
+  if (features && features.length > 0) {
+    const ops = dedupeFeatureBulkOps(userId, projectId, features);
+    if (ops.length > 0) {
+      await Feature.bulkWrite(ops, { ordered: false });
+    }
+  }
+
+  if (relationships && relationships.length > 0) {
+    const relOps = dedupeRelationshipBulkOps(userId, projectId, relationships);
+    if (relOps.length > 0) {
+      await FeatureRelationship.bulkWrite(relOps, { ordered: false });
+    }
   }
 }
 
