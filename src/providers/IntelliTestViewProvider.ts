@@ -189,7 +189,7 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
-				'IntelliTest: set intellitest.backendUrl in Settings (e.g. http://localhost:3000).'
+				'IntelliTest: set intellitest.backendUrl in Settings (default hosted API: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local server).'
 			);
 			return;
 		}

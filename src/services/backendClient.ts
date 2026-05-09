@@ -133,7 +133,7 @@ function throwAxiosDetail(err: unknown): never {
 	if (axios.isAxiosError(err)) {
 		if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
 			throw new Error(
-				'Cannot reach the IntelliTest backend. Start the server (cd Server && npm start) and set Settings → intellitest.backendUrl to the correct URL.'
+				'Cannot reach the IntelliTest backend. Check your network, verify Settings → intellitest.backendUrl (hosted: https://intellitest-hyvw.onrender.com), or run the API locally (cd Server && npm start).'
 			);
 		}
 		const fromBody = err.response?.data != null ? messageFromResponseData(err.response.data) : undefined;
