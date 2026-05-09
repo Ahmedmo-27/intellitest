@@ -4,6 +4,9 @@ export type WebviewMessage =
 			prompt: string;
 	  }
 	| {
+			command: 'generateTestCode';
+	  }
+	| {
 			command: 'exportExcel';
 	  }
 	| {

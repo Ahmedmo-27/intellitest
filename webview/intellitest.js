@@ -21,6 +21,7 @@ const userLabel = document.getElementById('userLabel');
 const input = document.getElementById('promptInput');
 const button = document.getElementById('generateButton');
 const exportButton = document.getElementById('exportButton');
+const generateCodeButton = document.getElementById('generateCodeButton');
 const techStackEl = document.getElementById('techStack');
 const stackTextEl = document.getElementById('stackText');
 const frameworkEl = document.getElementById('framework');
@@ -41,8 +42,10 @@ const defaultButtonText = button?.textContent ?? 'Generate Test Cases';
 const defaultExportButtonText = exportButton?.textContent ?? 'Export to Excel';
 
 let signupMode = false;
+const defaultGenerateCodeText = generateCodeButton ? generateCodeButton.textContent : 'Generate Test Code';
 let hasGeneratedRows = false;
 let isExporting = false;
+let isGeneratingCode = false;
 let isInsightsPanelOpen = true;
 const INSIGHTS_PAGE_SIZE = 8;
 let currentInsightsPage = 1;
@@ -241,6 +244,12 @@ function updateExportButton() {
 	exportButton.textContent = isExporting ? 'Exporting...' : defaultExportButtonText;
 }
 
+function updateGenerateCodeButton() {
+	if (!generateCodeButton) { return; }
+	generateCodeButton.disabled = !hasGeneratedRows || isGeneratingCode;
+	generateCodeButton.textContent = isGeneratingCode ? 'Generating Code...' : defaultGenerateCodeText;
+}
+
 function prefillPrompt(functionName) {
 	if (!input) {
 		return;
@@ -365,6 +374,7 @@ function renderTable(testCases) {
 		previewBody.innerHTML = '<tr><td colspan="8" class="empty-row">No test cases generated yet.</td></tr>';
 		hasGeneratedRows = false;
 		updateExportButton();
+		updateGenerateCodeButton();
 		return;
 	}
 
@@ -386,6 +396,7 @@ function renderTable(testCases) {
 	previewBody.innerHTML = rows;
 	hasGeneratedRows = true;
 	updateExportButton();
+	updateGenerateCodeButton();
 }
 
 /** @param {unknown} testScript */
@@ -457,6 +468,13 @@ exportButton?.addEventListener('click', () => {
 		return;
 	}
 	vscode.postMessage({ command: 'exportExcel' });
+});
+
+generateCodeButton?.addEventListener('click', () => {
+	if (!hasGeneratedRows || isGeneratingCode) { return; }
+	isGeneratingCode = true;
+	updateGenerateCodeButton();
+	vscode.postMessage({ command: 'generateTestCode' });
 });
 
 copyScriptButton?.addEventListener('click', () => {
@@ -582,6 +600,10 @@ window.addEventListener('message', event => {
 		}
 		isExporting = Boolean(message.isExporting);
 		updateExportButton();
+	} else if (message.command === 'testCode') {
+		isGeneratingCode = false;
+		updateGenerateCodeButton();
+		renderTestScript(message.testScript);
 	} else if (message.command === 'codeInsights') {
 		if (!mainUiAuthorized) {
 			return;
