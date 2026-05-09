@@ -137,6 +137,46 @@ export function mergeJsonBearerHeaders(authToken?: string): Record<string, strin
 	return headers;
 }
 
+/** Groq settings from the backend’s Server/.env (GET /llm-config). */
+export type ServerLlmConfig = {
+	apiKey: string;
+	model: string;
+	baseUrl: string;
+};
+
+/**
+ * Loads API_KEY / API_MODEL / API_BASE_URL from the running Debuggo server,
+ * which reads Server/.env — not the extension host’s root .env.
+ */
+export async function fetchLlmConfigFromBackend(baseUrl: string): Promise<ServerLlmConfig> {
+	const root = baseUrl.replace(/\/$/, '');
+	try {
+		const res = await axios.get<{ apiKey?: string; model?: string; baseUrl?: string; error?: string }>(
+			`${root}/llm-config`,
+			{ timeout: 15_000 }
+		);
+		const apiKey = res.data?.apiKey?.trim() ?? '';
+		if (!apiKey) {
+			throw new Error(
+				res.data?.error?.trim() ||
+					'API_KEY is not set on the Debuggo server. Add API_KEY to Server/.env and restart the server.'
+			);
+		}
+		return {
+			apiKey,
+			model: (res.data?.model ?? 'llama-3.3-70b-versatile').trim(),
+			baseUrl: (res.data?.baseUrl ?? 'https://api.groq.com/openai/v1').trim()
+		};
+	} catch (err) {
+		if (axios.isAxiosError(err)) {
+			const detail = messageFromResponseData(err.response?.data);
+			const suffix = detail ? `: ${detail}` : err.message ? `: ${err.message}` : '';
+			throw new Error(`Could not load LLM config from ${root}/llm-config${suffix}`);
+		}
+		throw err;
+	}
+}
+
 function bearerOnlyHeaders(authToken?: string): Record<string, string> | undefined {
 	const t = authToken?.trim();
 	if (!t) {
@@ -182,7 +222,7 @@ export async function generateViaBackendV2(
 	
 	// Ask backend to map prompt to features and dependencies
 	console.log(`[Debuggo Pass 1] Sending prompt: "${userPrompt}" with ${lightweightFiles.length} raw files to /analyze-intent`);
-	const intentAnalysis = await analyzeIntentV2(baseUrl, projectId, userPrompt, lightweightFiles);
+	const intentAnalysis = await analyzeIntentV2(baseUrl, projectId, userPrompt, lightweightFiles, authToken);
 	
 	// If API succeeded, use its files (even if empty, meaning feature not found).
 	// Only fallback to full parsing if API call failed entirely (null).
