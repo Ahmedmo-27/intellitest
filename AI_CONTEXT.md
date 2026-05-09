@@ -65,7 +65,7 @@ Backend to webview commands:
 - exportStatus
 
 ## AI Integration
-The extension uses Hugging Face Chat Completions as an external LLM provider.
+The extension uses Groq’s OpenAI-compatible Chat Completions API as the default external LLM provider (configurable via environment variables).
 
 Key points:
 - API transport via Axios
