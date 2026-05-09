@@ -134,10 +134,17 @@ h1 {
 	flex: 0;
 }
 
-/* Ensure main UI stays hidden until auth (.app-workspace uses display:flex, which can override [hidden]) */
-.auth-gate[hidden],
-#appWorkspace[hidden] {
+/* Collapsible sign-in panel uses [hidden]; full-screen gate removed for guest-first UX */
+.auth-gate[hidden] {
 	display: none !important;
+}
+
+.auth-gate-panel:not([hidden]) {
+	padding: 10px;
+	margin-bottom: 4px;
+	border: 1px solid var(--vscode-widget-border);
+	border-radius: 4px;
+	background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 }
 
 .app-workspace {

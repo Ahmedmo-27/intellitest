@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
-import axios from 'axios';
-import { generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
+import {
+	fetchLlmConfigFromBackend,
+	generateViaBackendV2,
+	loadProjectSession,
+	syncProject
+} from '../services/backendClient.js';
 import {
 	clearStoredToken,
 	fetchSessionUser,
@@ -12,6 +16,7 @@ import {
 import { UnauthorizedApiError } from '../errors/unauthorized.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel, readTestCasesFromExcel } from '../services/excel.js';
+import { detectTechStack } from '../services/techStack.js';
 import { generateTestCodeWithGroq } from '../services/groqTestCode.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
 import type { IntelliGenerationResult } from '../types/testCases.js';
@@ -46,10 +51,31 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	/** In-memory JWT for this extension session; cleared on logout or invalid token. */
 	private authToken?: string;
 
-	public constructor(context: vscode.ExtensionContext, extensionUri: vscode.Uri) {
+	public constructor(
+		context: vscode.ExtensionContext,
+		extensionUri: vscode.Uri,
+		initialDetectedStack = 'Unknown Tech Stack',
+		initialRecommendedFramework = 'Not detected yet'
+	) {
 		this.extensionContext = context;
 		this.extensionUri = extensionUri;
 		this.projectId = getOrCreateProjectId(context);
+		this.detectedStack = initialDetectedStack;
+		this.recommendedTestingFramework = initialRecommendedFramework;
+	}
+
+	private async hydrateWorkspaceSignalsFromFolder(): Promise<void> {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		if (!workspaceFolder) {
+			return;
+		}
+		this.detectedStack = await detectTechStack(workspaceFolder.uri);
+		this.recommendedTestingFramework =
+			detectRecommendedTestingFramework(workspaceFolder.uri.fsPath) || this.recommendedTestingFramework;
+	}
+
+	private getBackendUrl(): string {
+		return vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
 	}
 
 	/**
@@ -134,17 +160,238 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+	// ── Auth bootstrap ─────────────────────────────────────────────────────────────
+
+	private async handleWebviewReady(): Promise<void> {
+		const wv = this.view?.webview;
+		if (!wv) {
+			return;
+		}
+
+		void wv.postMessage({ command: 'authBusy', busy: false });
+
+		const backendUrl = this.getBackendUrl();
+		if (!backendUrl) {
+			this.authToken = undefined;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: false,
+				guest: true,
+				needsBackendUrl: true
+			});
+			return;
+		}
+
+		const stored = await getStoredToken(this.extensionContext);
+		this.authToken = stored;
+
+		if (!stored) {
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: false,
+				guest: true,
+				needsBackendUrl: false
+			});
+			await this.bootstrapGuestExperience();
+			return;
+		}
+
+		try {
+			const user = await fetchSessionUser(backendUrl, stored);
+			if (!user) {
+				await clearStoredToken(this.extensionContext);
+				this.authToken = undefined;
+				void wv.postMessage({
+					command: 'authState',
+					authenticated: false,
+					guest: true,
+					needsBackendUrl: false
+				});
+				await this.bootstrapGuestExperience();
+				return;
+			}
+
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: true,
+				guest: false,
+				user
+			});
+			await this.bootstrapAuthenticatedExperience();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`Debuggo: session bootstrap failed — ${msg}`);
+			this.authToken = undefined;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: false,
+				guest: true,
+				needsBackendUrl: false,
+				bootstrapError:
+					'Could not reach the Debuggo server to verify your account. Check that the backend is running and debuggo.backendUrl is correct, then use Retry below.'
+			});
+			await this.bootstrapGuestExperience();
+		}
+	}
+
+	private async handleAuthLogin(email: string, password: string): Promise<void> {
+		const wv = this.view?.webview;
+		const backendUrl = this.getBackendUrl();
+		if (!wv) {
+			return;
+		}
+
+		void wv.postMessage({ command: 'authBusy', busy: true });
+		void wv.postMessage({ command: 'authErrorClear' });
+
+		if (!backendUrl) {
+			void wv.postMessage({
+				command: 'authError',
+				message: 'Configure debuggo.backendUrl in Settings first.'
+			});
+			void wv.postMessage({ command: 'authBusy', busy: false });
+			return;
+		}
+
+		try {
+			const { token, user } = await loginRequest(backendUrl, email, password);
+			await saveToken(this.extensionContext, token);
+			this.authToken = token;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: true,
+				guest: false,
+				user
+			});
+			await this.bootstrapAuthenticatedExperience();
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			void wv.postMessage({ command: 'authError', message: m });
+		} finally {
+			void wv.postMessage({ command: 'authBusy', busy: false });
+		}
+	}
+
+	private async handleAuthSignup(name: string, email: string, password: string): Promise<void> {
+		const wv = this.view?.webview;
+		const backendUrl = this.getBackendUrl();
+		if (!wv) {
+			return;
+		}
+
+		void wv.postMessage({ command: 'authBusy', busy: true });
+		void wv.postMessage({ command: 'authErrorClear' });
+
+		if (!backendUrl) {
+			void wv.postMessage({
+				command: 'authError',
+				message: 'Configure debuggo.backendUrl in Settings first.'
+			});
+			void wv.postMessage({ command: 'authBusy', busy: false });
+			return;
+		}
+
+		try {
+			const { token, user } = await signupRequest(backendUrl, name, email, password);
+			await saveToken(this.extensionContext, token);
+			this.authToken = token;
+			void wv.postMessage({
+				command: 'authState',
+				authenticated: true,
+				guest: false,
+				user
+			});
+			await this.bootstrapAuthenticatedExperience();
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			void wv.postMessage({ command: 'authError', message: m });
+		} finally {
+			void wv.postMessage({ command: 'authBusy', busy: false });
+		}
+	}
+
+	private async handleLogout(): Promise<void> {
+		await clearStoredToken(this.extensionContext);
+		this.authToken = undefined;
+		this.latestGenerated = EMPTY_GENERATION;
+
+		const backendUrl = this.getBackendUrl();
+		void this.view?.webview.postMessage({
+			command: 'authState',
+			authenticated: false,
+			guest: true,
+			needsBackendUrl: !backendUrl
+		});
+		void this.view?.webview.postMessage({ command: 'resetMainUi' });
+		await this.bootstrapGuestExperience();
+	}
+
+	private async clearSessionDueToUnauthorized(): Promise<void> {
+		await clearStoredToken(this.extensionContext);
+		this.authToken = undefined;
+		this.latestGenerated = EMPTY_GENERATION;
+
+		void vscode.window.showWarningMessage(
+			'Debuggo: Your session expired or was revoked. Please sign in again.'
+		);
+		void this.view?.webview.postMessage({
+			command: 'authState',
+			authenticated: false,
+			guest: true,
+			needsBackendUrl: !this.getBackendUrl()
+		});
+		void this.view?.webview.postMessage({ command: 'resetMainUi' });
+		await this.bootstrapGuestExperience();
+	}
+
+	private async bootstrapGuestExperience(): Promise<void> {
+		const wv = this.view?.webview;
+		const backendUrl = this.getBackendUrl();
+		if (!wv || !backendUrl) {
+			return;
+		}
+
+		void wv.postMessage({
+			command: 'init',
+			detectedStack: this.detectedStack,
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			projectId: this.projectId
+		});
+
+		void this.handleSyncProject(true);
+		void this.postCodeInsights();
+	}
+
+	private async bootstrapAuthenticatedExperience(): Promise<void> {
+		const wv = this.view?.webview;
+		if (!wv || !this.authToken) {
+			return;
+		}
+
+		await this.hydrateWorkspaceSignalsFromFolder();
+
+		void wv.postMessage({
+			command: 'init',
+			detectedStack: this.detectedStack,
+			recommendedTestingFramework: this.recommendedTestingFramework,
+			projectId: this.projectId
+		});
+
+		await this.loadAndPostSession();
+		void this.handleSyncProject(true);
+		void this.postCodeInsights();
+	}
+
 	// ── Session loading ──────────────────────────────────────────────────────────
 
 	/**
 	 * Fetch previous session from /project/:projectId/init and push it to the webview.
 	 */
 	private async loadAndPostSession(): Promise<void> {
-		const backendUrl =
-			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+		const backendUrl = this.getBackendUrl();
 
-		if (!backendUrl) {
-			return; // No backend configured — skip session loading
+		if (!backendUrl || !this.authToken) {
+			return;
 		}
 
 		try {
@@ -173,11 +420,11 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	// ── Sync Project ─────────────────────────────────────────────────────────────
 
 	private async handleSyncProject(silent = false): Promise<void> {
-		const backendUrl =
-			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
-
+		const backendUrl = this.getBackendUrl();
 		if (!backendUrl) {
-			if (!silent) void vscode.window.showErrorMessage('Please configure Debuggo backend URL in settings.');
+			if (!silent) {
+				void vscode.window.showErrorMessage('Configure Debuggo backend URL in settings.');
+			}
 			return;
 		}
 
@@ -206,15 +453,25 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 				cancellable: false
 			},
 			async () => {
-				const success = await syncProject(backendUrl, this.projectId, allFiles);
-				if (success) {
-					void vscode.window.showInformationMessage(
-						'Debuggo: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.'
-					);
-				} else {
-					void vscode.window.showErrorMessage(
-						'Debuggo: Failed to sync project map. Check backend server logs.'
-					);
+				try {
+					const success = await syncProject(backendUrl, this.projectId, allFiles, this.authToken);
+					if (success) {
+						void vscode.window.showInformationMessage(
+							'Debuggo: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.'
+						);
+					} else {
+						void vscode.window.showErrorMessage(
+							'Debuggo: Failed to sync project map. Check backend server logs.'
+						);
+					}
+				} catch (err) {
+					if (err instanceof UnauthorizedApiError) {
+						await this.clearSessionDueToUnauthorized();
+					} else {
+						void vscode.window.showErrorMessage(
+							'Debuggo: Failed to sync project map. Check backend server logs.'
+						);
+					}
 				}
 			}
 		);
@@ -232,18 +489,12 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		const backendUrl =
-			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+		const backendUrl = this.getBackendUrl();
 
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
 				'Debuggo: set debuggo.backendUrl in Settings (default hosted API: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local server).'
 			);
-			return;
-		}
-
-		if (!this.authToken) {
-			void vscode.window.showErrorMessage('IntelliTest: Please sign in from the sidebar to generate test cases.');
 			return;
 		}
 
@@ -256,9 +507,15 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 					title: 'Debuggo: generating test cases…',
 					cancellable: false
 				},
-				// Use the new stateful v2 endpoint
 				async () =>
-					generateViaBackendV2(backendUrl, this.projectId, workspaceRootPath, this.detectedStack, prompt)
+					generateViaBackendV2(
+						backendUrl,
+						this.projectId,
+						workspaceRootPath,
+						this.detectedStack,
+						prompt,
+						this.authToken
+					)
 			);
 
 			this.recommendedTestingFramework =
@@ -314,15 +571,12 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			}
 		}
 
-		// ── Step 2: Validate Groq credentials ────────────────────────────────────
+		// ── Step 2: Groq credentials from Debuggo server (Server/.env via GET /llm-config)
 
-		const apiKey = process.env.API_KEY?.trim().replace(/^['"]|['"]$/g, '') ?? '';
-		const model  = process.env.API_MODEL?.trim().replace(/^['"]|['"]$/g, '') ?? 'llama-3.3-70b-versatile';
-
-		if (!apiKey) {
+		const backendUrl = this.getBackendUrl();
+		if (!backendUrl) {
 			notifyError(
-				'Groq API key is missing.\n' +
-				'Add API_KEY=your_groq_key to the root .env file and restart the extension.'
+				'Set debuggo.backendUrl to your Debuggo server so the extension can read API_KEY from Server/.env (GET /llm-config).'
 			);
 			return;
 		}
@@ -341,12 +595,16 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 					title: 'IntelliTest: Generating test code from Excel test cases using Groq...',
 					cancellable: false
 				},
-				async () => generateTestCodeWithGroq(
-					testCases,
-					this.recommendedTestingFramework,
-					apiKey,
-					model
-				)
+				async () => {
+					const llm = await fetchLlmConfigFromBackend(backendUrl);
+					return generateTestCodeWithGroq(
+						testCases,
+						this.recommendedTestingFramework,
+						llm.apiKey,
+						llm.model,
+						llm.baseUrl
+					);
+				}
 			);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);

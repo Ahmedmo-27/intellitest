@@ -1,10 +1,8 @@
 /**
  * Groq service for generating executable test code from structured test cases.
  *
- * Uses the same Groq OpenAI-compatible endpoint already used by the backend,
- * but called directly from the extension so no backend restart is needed.
- *
- * All credentials are read from environment variables — nothing is hardcoded.
+ * Called from the extension using credentials supplied by the backend (Server/.env)
+ * via GET /llm-config — optional apiBaseUrl overrides the Groq-compatible base URL.
  */
 
 import axios from 'axios';
@@ -13,7 +11,6 @@ import type { TestCaseRow } from '../types/testCases.js';
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
-const GROQ_ENDPOINT = `${GROQ_BASE_URL}/chat/completions`;
 const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
@@ -86,15 +83,17 @@ function stripMarkdownFences(text: string): string {
  *
  * @param testCases  - Structured test cases (from memory or parsed Excel)
  * @param framework  - Detected testing framework hint (e.g. "Jest", "Pytest")
- * @param apiKey     - Groq API key (process.env.API_KEY)
- * @param model      - Groq model ID (process.env.API_MODEL)
+ * @param apiKey       - Groq API key (from server /llm-config)
+ * @param model        - Groq model ID
+ * @param apiBaseUrl   - OpenAI-compatible base URL (default Groq)
  * @returns Raw test code string ready to be saved to a file
  */
 export async function generateTestCodeWithGroq(
 	testCases: TestCaseRow[],
 	framework: string,
 	apiKey: string,
-	model: string = DEFAULT_MODEL
+	model: string = DEFAULT_MODEL,
+	apiBaseUrl?: string
 ): Promise<string> {
 	// ── Validation ────────────────────────────────────────────────────────────
 
@@ -129,11 +128,14 @@ export async function generateTestCodeWithGroq(
 		`Return only the raw code — no markdown, no explanation, no code fences.\n\n` +
 		`TEST CASES:\n${formattedCases}`;
 
+	const base = (apiBaseUrl?.trim() || GROQ_BASE_URL).replace(/\/$/, '');
+	const chatEndpoint = `${base}/chat/completions`;
+
 	// ── API call ──────────────────────────────────────────────────────────────
 
 	try {
 		const response = await axios.post(
-			GROQ_ENDPOINT,
+			chatEndpoint,
 			{
 				model: model.trim() || DEFAULT_MODEL,
 				messages: [
