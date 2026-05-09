@@ -7,6 +7,9 @@ export type WebviewMessage =
 			command: 'exportExcel';
 	  }
 	| {
+			command: 'syncProject';
+	  }
+	| {
 			command: 'ready';
 	  }
 	| {

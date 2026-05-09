@@ -1,6 +1,6 @@
 import { normalize } from "./guardrailService.js";
 
-const NOISE_WORDS = new Set(["src", "client", "server", "index", "config", "test", "spec", "app", "main", "js", "tsx", "ts", "jsx", "module", "routes"]);
+const NOISE_WORDS = new Set(["src", "client", "server", "index", "config", "test", "spec", "app", "main", "js", "tsx", "ts", "jsx", "module", "routes", "route", "router", "routers", "controller", "controllers", "service", "services", "model", "models", "component", "components", "util", "utils", "helper", "helpers", "page", "pages", "api", "view", "views", "endpoint", "endpoints"]);
 
 const featureCache = new Map();
 const relationshipCache = new Map();

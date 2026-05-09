@@ -1,8 +1,8 @@
-# IntelliTest
+# Debuggo
 
 AI-powered VS Code extension for generating structured software test cases.
 
-IntelliTest is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
+Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
 
 ## Features
 
@@ -36,7 +36,7 @@ Key files and folders:
   - Extension activation and registration of the webview provider.
   - Main backend entrypoint for VS Code integration.
 
-- `src/providers/IntelliTestViewProvider.ts`
+- `src/providers/DebuggoViewProvider.ts`
   - Core backend view logic: prompt handling, AI generation flow, export flow, and webview messaging.
 
 - `src/services/groq.ts`
@@ -68,13 +68,13 @@ Key files and folders:
 - `webview/`
   - Frontend sidebar UI assets.
 
-- `webview/intellitest.html`
+- `webview/debuggo.html`
   - Sidebar layout and UI structure.
 
-- `webview/intellitest.js`
+- `webview/debuggo.js`
   - Handles UI interactions and message passing with backend.
 
-- `webview/intellitest.css`
+- `webview/debuggo.css`
   - VS Code-themed styling using theme variables.
 
 - `package.json`
@@ -83,11 +83,11 @@ Key files and folders:
 - `AI_CONTEXT.md`
   - Context file for AI tools and coding assistants.
 
-Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webview/style.css`, this project currently uses `intellitest.html`, `intellitest.js`, and `intellitest.css` with the same roles.
+Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webview/style.css`, this project currently uses `debuggo.html`, `debuggo.js`, and `debuggo.css` with the same roles.
 
 ## How It Works
 
-1. User enters a prompt in the IntelliTest sidebar.
+1. User enters a prompt in the Debuggo sidebar.
 2. Extension detects the project tech stack.
 3. **Codebase is scanned**: Static analysis extracts functions, classes, and variables from JS/TS files using the TypeScript Compiler API.
 4. **Code context is built**: Project structure (routes, modules), code symbols, and detected priority files are packaged into a structured payload.
@@ -97,7 +97,7 @@ Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webv
 
 ## Codebase Content Reading Feature
 
-IntelliTest includes a **dual-layer code analysis engine** that combines **syntax extraction** (what code exists) with **semantic extraction** (what code means).
+Debuggo includes a **dual-layer code analysis engine** that combines **syntax extraction** (what code exists) with **semantic extraction** (what code means).
 
 ### Two-Layer Analysis
 
@@ -233,7 +233,7 @@ Combined Result:
 Sent to AI for smarter test generation
 ```
 
-**Efficient Extraction:** IntelliTest does NOT parse every character. Instead, it walks the AST tree, checking node types (`isFunctionDeclaration`, `isClassDeclaration`, etc.) and extracting only matched symbols with their metadata. A 1000-line file might yield only 5-10 functions—keeping context small and focused.
+**Efficient Extraction:** Debuggo does NOT parse every character. Instead, it walks the AST tree, checking node types (`isFunctionDeclaration`, `isClassDeclaration`, etc.) and extracting only matched symbols with their metadata. A 1000-line file might yield only 5-10 functions—keeping context small and focused.
 
 ### File-by-File Breakdown
 

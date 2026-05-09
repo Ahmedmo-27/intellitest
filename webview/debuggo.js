@@ -232,7 +232,22 @@ function submitPrompt() {
 	});
 }
 
+const syncProjectButton = document.getElementById('syncProjectButton');
+
 button.addEventListener('click', submitPrompt);
+
+syncProjectButton?.addEventListener('click', () => {
+	syncProjectButton.disabled = true;
+	syncProjectButton.textContent = 'Syncing...';
+	vscode.postMessage({ command: 'syncProject' });
+	
+	// Reset UI after 2 seconds assuming sync is fast
+	setTimeout(() => {
+		syncProjectButton.disabled = false;
+		syncProjectButton.textContent = 'Re-sync';
+	}, 2000);
+});
+
 exportButton.addEventListener('click', () => {
 	vscode.postMessage({ command: 'exportExcel' });
 });

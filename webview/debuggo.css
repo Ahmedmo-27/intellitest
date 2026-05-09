@@ -26,6 +26,12 @@ h1 {
 	color: var(--vscode-foreground);
 }
 
+.header-bar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
 .description {
 	margin: 0 0 12px 0;
 	font-size: 12px;

@@ -62,3 +62,48 @@ export async function initProject(req, res) {
     });
   }
 }
+
+/**
+ * POST /project/:projectId/sync
+ * 
+ * Called by the extension when it first loads (or on manual reset) to 
+ * send the entire project's file list. This builds the global 
+ * Feature Intelligence Graph in MongoDB once.
+ */
+import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
+import { syncFeatureIntelligence } from "../services/projectService.js";
+
+export async function syncProject(req, res) {
+  const { projectId } = req.params;
+  const { files } = req.body;
+
+  if (!projectId || !files || !Array.isArray(files)) {
+    return res.status(400).json({ error: "projectId and files array are required." });
+  }
+
+  try {
+    const userId = req.userId || req.user?.id;
+    
+    // We already have logger imported at the top, let's just use it, or import logTerminalSection dynamically.
+    const { logTerminalSection } = await import("../utils/logger.js");
+    logTerminalSection("POST /project/:projectId/sync — FULL PROJECT MAP", `Received ${files.length} files from VS Code.`);
+
+    // Extract features from the entire project file list
+    const mockMap = { files };
+    const extractedFeatures = extractFeatures(mockMap, null);
+    const relationships = buildFeatureRelationships(extractedFeatures, null);
+
+    if (userId) {
+      await syncFeatureIntelligence(userId, projectId, extractedFeatures, relationships);
+    }
+
+    return res.json({ 
+      success: true, 
+      featureCount: extractedFeatures.length,
+      relationshipCount: relationships.length
+    });
+  } catch (err) {
+    logger.error("project_sync_failed", { projectId, message: err.message });
+    return res.status(500).json({ error: "Failed to sync project features." });
+  }
+}

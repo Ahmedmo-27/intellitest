@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { generateViaBackend, generateViaBackendV2, loadProjectSession } from '../services/backendClient.js';
+import { generateViaBackend, generateViaBackendV2, loadProjectSession, syncProject } from '../services/backendClient.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel } from '../services/excel.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
@@ -8,6 +8,7 @@ import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
 import type { WebviewMessage } from '../types/messages.js';
 import { getWebviewHtml } from '../webview/template.js';
 import { getOrCreateProjectId } from '../utils/projectId.js';
+import { listProjectRelativePaths } from '../services/codebaseContext.js';
 
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
@@ -15,8 +16,8 @@ const EMPTY_GENERATION: IntelliGenerationResult = {
 	testScript: null
 };
 
-export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
-	public static readonly viewType = 'intellitestView';
+export class DebuggoViewProvider implements vscode.WebviewViewProvider {
+	public static readonly viewType = 'debuggoView';
 
 	private readonly extensionUri: vscode.Uri;
 	private readonly extensionContext: vscode.ExtensionContext;
@@ -59,6 +60,9 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 				case 'generate':
 					void this.handleGenerate(message.prompt);
 					break;
+				case 'syncProject':
+					void this.handleSyncProject();
+					break;
 				case 'exportExcel':
 					void this.handleExportExcel();
 					break;
@@ -78,7 +82,9 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 					});
 					// 2. Load previous session from server
 					void this.loadAndPostSession();
-					// 3. Load code insights
+					// 3. Auto-sync the project map globally in the background
+					void this.handleSyncProject(true);
+					// 4. Load code insights
 					void this.postCodeInsights();
 					break;
 				case 'refreshCodeInsights':
@@ -98,7 +104,7 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 	 */
 	private async loadAndPostSession(): Promise<void> {
 		const backendUrl =
-			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
+			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
 
 		if (!backendUrl) {
 			return; // No backend configured — skip session loading
@@ -120,8 +126,54 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		} catch (err) {
 			// Non-critical — log but don't surface to user
 			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`IntelliTest: could not load previous session — ${msg}`);
+			console.warn(`Debuggo: could not load previous session — ${msg}`);
 		}
+	}
+
+	// ── Sync Project ─────────────────────────────────────────────────────────────
+
+	private async handleSyncProject(silent = false): Promise<void> {
+		const backendUrl =
+			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+
+		if (!backendUrl) {
+			if (!silent) void vscode.window.showErrorMessage('Please configure Debuggo backend URL in settings.');
+			return;
+		}
+
+		const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (!workspaceRootPath) {
+			return;
+		}
+
+		// Grab lightweight file list (all 1000+ files)
+		const allFiles = listProjectRelativePaths(workspaceRootPath, 2000);
+
+		if (silent) {
+			// Auto-sync in the background
+			await syncProject(backendUrl, this.projectId, allFiles).catch(() => {});
+			return;
+		}
+
+		void vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Debuggo: Building Global Intelligence Graph...',
+				cancellable: false
+			},
+			async () => {
+				const success = await syncProject(backendUrl, this.projectId, allFiles);
+				if (success) {
+					void vscode.window.showInformationMessage(
+						'Debuggo: Global Knowledge Graph successfully rebuilt! The backend is now fully aware of all your new files and dependencies.'
+					);
+				} else {
+					void vscode.window.showErrorMessage(
+						'Debuggo: Failed to sync project map. Check backend server logs.'
+					);
+				}
+			}
+		);
 	}
 
 	// ── Generate ─────────────────────────────────────────────────────────────────
@@ -137,11 +189,11 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const backendUrl =
-			vscode.workspace.getConfiguration('intellitest').get<string>('backendUrl')?.trim() ?? '';
+			vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
 
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
-				'IntelliTest: set intellitest.backendUrl in Settings (e.g. http://localhost:3000).'
+				'Debuggo: set debuggo.backendUrl in Settings (default hosted API: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local server).'
 			);
 			return;
 		}
@@ -152,17 +204,12 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 			this.latestGenerated = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'IntelliTest: generating test cases…',
+					title: 'Debuggo: generating test cases…',
 					cancellable: false
 				},
 				// Use the new stateful v2 endpoint
-				async () => generateViaBackendV2(
-					backendUrl,
-					this.projectId,
-					workspaceRootPath,
-					this.detectedStack,
-					prompt
-				)
+				async () =>
+					generateViaBackendV2(backendUrl, this.projectId, workspaceRootPath, this.detectedStack, prompt)
 			);
 
 			this.recommendedTestingFramework =
@@ -170,10 +217,10 @@ export class IntelliTestViewProvider implements vscode.WebviewViewProvider {
 
 			this.postResult(this.latestGenerated);
 
-			void vscode.window.showInformationMessage('IntelliTest: test cases are ready in the panel.');
+			void vscode.window.showInformationMessage('Debuggo: test cases are ready in the panel.');
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			void vscode.window.showErrorMessage(`IntelliTest generation failed: ${errorMessage}`);
+			void vscode.window.showErrorMessage(`Debuggo generation failed: ${errorMessage}`);
 		}
 	}
 
