@@ -101,7 +101,7 @@ export async function generateTestCodeWithGroq(
 	if (!apiKey?.trim()) {
 		throw new Error(
 			'Groq API key is missing.\n' +
-			'Add API_KEY=your_groq_key to the root .env file.'
+			'Add API_KEY=your_groq_key to Server/.env.'
 		);
 	}
 
@@ -178,7 +178,7 @@ export async function generateTestCodeWithGroq(
 			if (status === 401) {
 				throw new Error(
 					'Groq API key is invalid or expired.\n' +
-					'Check API_KEY in your root .env file.'
+					'Check API_KEY in Server/.env.'
 				);
 			}
 			if (status === 429) {

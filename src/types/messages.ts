@@ -16,6 +16,23 @@ export type WebviewMessage =
 			command: 'ready';
 	  }
 	| {
+			command: 'login';
+			email: string;
+			password: string;
+	  }
+	| {
+			command: 'signup';
+			name: string;
+			email: string;
+			password: string;
+	  }
+	| {
+			command: 'logout';
+	  }
+	| {
+			command: 'retryAuth';
+	  }
+	| {
 			command: 'refreshCodeInsights';
 	  }
 	| {

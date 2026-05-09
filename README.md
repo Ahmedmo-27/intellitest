@@ -59,8 +59,15 @@ Key files and folders:
   - Combines tech stack, routes, modules, and code symbols into a single payload sent to the backend.
 
 - `src/services/backendClient.ts`
-  - HTTP client for communicating with the backend `/generate-testcases` endpoint.
+  - HTTP client for the IntelliTest API (`POST /generate`, `/analyze-intent`, `/project/...`).
+  - Sends `Authorization: Bearer` when the user is logged in so history is stored **per account + workspace projectId**.
   - Maps server test case responses to UI-ready test case rows.
+
+- `src/services/authSession.ts`
+  - Calls `/auth/login` and `/auth/signup`, persists JWT in VS Code SecretStorage.
+
+- `Server/` (optional but required for gated extension flow)
+  - Express + MongoDB backend with `/auth/*` and stateful generation routes (`Server/src/app.js`).
 
 - `src/services/excel.ts`
   - Excel generation and file export using `xlsx`.
@@ -341,6 +348,29 @@ For local VS Code debugging, `.vscode/launch.json` can load environment variable
 - Recommended:
   - Keep `.env` local and out of source control.
   - Ensure your debug launch configuration loads your environment values.
+
+## Sidebar authentication
+
+The **extension sidebar** is separate from any **browser** demo under `website/`.
+
+1. Configure `intellitest.backendUrl` to a running IntelliTest server.
+2. Open the IntelliTest sidebar: you see a **Log in / Sign up** gate only.
+3. After a successful login, the JWT is stored in VS Code SecretStorage (`intellitest.authJwt`); restarting VS Code keeps you signed in until you **Log out**, the token expires (`JWT_EXPIRES_IN` on the server, often 7 days), or the server rejects the token (401).
+
+The header shows your display name when signed in and includes **Log out**.
+
+## How to test (auth + generation)
+
+1. **MongoDB**: Run a local MongoDB instance (or Atlas URI) matching `Server/.env`.
+2. **Server**: From the repo root, `cd Server && npm install && npm start` (or your process manager).
+3. **Extension host**: From the repo root, `npm install && npm run compile`, then press **F5** in VS Code with the extension project open (**Run Extension**).
+4. In the Extension Development Host: set **Settings → IntelliTest → Backend URL** to your server (`http://localhost:<port>` with no trailing slash).
+5. **Sign up**: use the sidebar **Sign up** tab with a name, email, and password at least eight characters long. You should immediately see the full generator UI (`init`, code insights, etc.).
+6. **Persistence**: Reload the window (**Developer: Reload Window**) or restart the host; reopen the sidebar—you should skip the gate and remain signed in.
+7. **Log out**: Click **Log out**; gate returns; main generator block is hidden.
+8. **Generation + history**: After sign-in, run **Generate** once; reopen the sidebar or trigger **Retry** reload—`sessionLoaded` is posted (history is available for a future sidebar UI); server stores messages under your user plus the workspace project UUID.
+9. **Backend down**: Stop the server, reload the sidebar: you should see the gate with **Retry connection** after bootstrap failure (stored token is kept unless `/auth/me` returns 401).
+10. **Expired token**: Set `JWT_EXPIRES_IN` short (for example `10s`), restart server, wait, then trigger **Generate** or reload; extension should warn and send you back to the gate.
 
 ## Development Notes
 

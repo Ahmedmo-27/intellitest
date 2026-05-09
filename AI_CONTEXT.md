@@ -4,6 +4,8 @@
 This document is the primary context guide for any AI coding assistant working on this repository.
 Read this file before generating, refactoring, or modifying code.
 
+**Extension vs web app:** Features that live in the VS Code sidebar (webview under `webview/`, logic under `src/providers/`, etc.) are **not** the same as the standalone **website** under `website/`. Authentication UI and JWT handling described here apply to the **extension** unless a task explicitly targets the browser app.
+
 Use this as the source of truth for:
 - project intent
 - architecture boundaries
@@ -52,23 +54,31 @@ High-level component responsibilities:
 - [webview/debuggo.js](webview/debuggo.js): frontend behavior, state updates, and message handling
 
 ### Message Passing Model
-Communication is event-driven between webview and extension backend.
+Communication is event-driven between webview and extension host (`IntelliTestViewProvider`).
 
-Webview to backend commands:
-- ready
-- generate
-- exportExcel
+Webview → extension commands:
+- `ready` — webview mounted; triggers auth bootstrap (`GET /auth/me` when a stored JWT exists) or shows the gate
+- `login` / `signup` — email/password (+ name on sign-up); on success JWT is stored and the full UI loads
+- `logout` — deletes stored JWT and returns to the gate
+- `retryAuth` — re-runs bootstrap after a connection failure
+- `generate`, `syncProject`, `exportExcel`, `refreshCodeInsights`, test script clipboard/save commands (unchanged)
 
-Backend to webview commands:
-- init
-- result
-- exportStatus
+Extension → webview commands (non-exhaustive):
+- `authState` — `{ authenticated, needsBackendUrl?, user?, bootstrapError? }` toggles **gate-only** vs **full sidebar**
+- `authError` / `authErrorClear`, `authBusy` — gate form validation and UX
+- `resetMainUi` — clears preview table and prompt after logout or session expiry
+- `init`, `sessionLoaded`, `result`, `exportStatus`, `codeInsights`
+
+### Authentication (extension)
+- Until the user is authenticated with the IntelliTest **server**, the sidebar shows only the **login / sign-up** gate (VS Code theme tokens). The main generator UI is hidden (`#appWorkspace`).
+- JWT from `POST /auth/login` or `POST /auth/signup` is stored via `ExtensionContext.secrets` (`intellitest.authJwt`). It survives restarting VS Code on the same machine until logout or JWT expiry (`JWT_EXPIRES_IN` on server, default 7 days).
+- All stateful backend calls from the extension include `Authorization: Bearer <token>` so MongoDB persists and loads **per userId + projectId** (messages, context, generations).
 
 ## AI Integration
 The extension uses Groq’s OpenAI-compatible Chat Completions API as the default external LLM provider (configurable via environment variables).
 
 Key points:
-- API transport via Axios
+- API transport via Axios (extension ↔ backend; backend ↔ model provider as configured)
 - Behavior controlled by a system prompt and structured user prompt assembly
 - AI must return JSON in the expected schema
 - Parser supports practical model output patterns and normalizes into internal types
@@ -134,11 +144,13 @@ Additional output requirement:
 - Prioritize prompt intent over unrelated assumptions
 
 ## Extension Workflow
-1. User enters prompt in sidebar
-2. Extension has detected tech stack context
-3. AI generates structured test cases plus recommended framework
-4. Webview renders tabular preview
-5. User exports to Excel when needed
+1. User signs in or creates an account (gate); JWT stored in SecretStorage
+2. Extension loads workspace `projectId`, optional session from `GET /project/:id/init` (scoped to logged-in user)
+3. User enters prompt in sidebar
+4. Extension has detected tech stack context (and may sync file list for the backend graph)
+5. Backend-driven AI generates structured test cases plus recommended framework
+6. Webview renders tabular preview
+7. User exports to Excel when needed
 
 ## Excel Export Notes
 - Uses XLSX for workbook generation
