@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
-	fetchLlmConfigFromBackend,
+	buildGeneratePayloadFromTestCaseRows,
+	generateTestCodeViaBackend,
 	generateViaBackendV2,
 	loadProjectSession,
 	syncProject
@@ -17,7 +18,6 @@ import { UnauthorizedApiError } from '../errors/unauthorized.js';
 import { getCodeInsights } from '../services/codeInsights.js';
 import { exportTestCasesToExcel, readTestCasesFromExcel } from '../services/excel.js';
 import { detectTechStack } from '../services/techStack.js';
-import { generateTestCodeWithGroq } from '../services/groqTestCode.js';
 import { detectRecommendedTestingFramework } from '../services/testingFramework.js';
 import type { IntelliGenerationResult } from '../types/testCases.js';
 import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
@@ -534,7 +534,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
-	// ── Generate Test Code (Groq) ─────────────────────────────────────────────────
+	// ── Generate Test Code (server LLM) ─────────────────────────────────────────
 
 	private async handleGenerateTestCode(): Promise<void> {
 		const notifyError = (msg: string) => {
@@ -542,13 +542,11 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			void this.view?.webview.postMessage({ command: 'testCode', testScript: null });
 		};
 
-		// ── Step 1: Resolve test cases ────────────────────────────────────────────
-		// Prefer in-memory test cases; fall back to reading the last exported Excel.
-
+		let usedExcelFallback = false;
 		let testCases = this.latestGenerated.testCases;
 
 		if (testCases.length === 0) {
-			// Try to read from the last known Excel file
+			usedExcelFallback = true;
 			if (!this.lastExcelPath) {
 				notifyError(
 					'No test cases found in memory and no Excel file has been exported yet.\n' +
@@ -571,20 +569,24 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			}
 		}
 
-		// ── Step 2: Groq credentials from Debuggo server (Server/.env via GET /llm-config)
-
 		const backendUrl = this.getBackendUrl();
 		if (!backendUrl) {
 			notifyError(
-				'Set debuggo.backendUrl to your Debuggo server so the extension can read API_KEY from Server/.env (GET /llm-config).'
+				'Set debuggo.backendUrl to your Debuggo server (e.g. http://localhost:3000) so test code can be generated via POST /generate-test-code.'
 			);
 			return;
 		}
 
-		// ── Step 3: Call Groq ─────────────────────────────────────────────────────
+		const generateResponsePayload =
+			!usedExcelFallback && this.latestGenerated.generateApiPayload
+				? this.latestGenerated.generateApiPayload
+				: buildGeneratePayloadFromTestCaseRows(
+					testCases,
+					usedExcelFallback ? 'excel-import' : 'rows-without-prior-generate-json'
+				);
 
 		void vscode.window.showInformationMessage(
-			'IntelliTest: Generating test code from Excel test cases using Groq...'
+			'IntelliTest: Generating test code via server from your test cases…'
 		);
 
 		let code: string;
@@ -592,37 +594,32 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			code = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'IntelliTest: Generating test code from Excel test cases using Groq...',
+					title: 'IntelliTest: Generating test code via server…',
 					cancellable: false
 				},
-				async () => {
-					const llm = await fetchLlmConfigFromBackend(backendUrl);
-					return generateTestCodeWithGroq(
-						testCases,
-						this.recommendedTestingFramework,
-						llm.apiKey,
-						llm.model,
-						llm.baseUrl
-					);
-				}
+				async () =>
+					generateTestCodeViaBackend(
+						backendUrl,
+						{
+							framework: this.recommendedTestingFramework,
+							generateResponsePayload
+						},
+						this.authToken
+					)
 			);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			notifyError(`Groq API request failed — ${msg}`);
+			notifyError(`Test code request failed — ${msg}`);
 			return;
 		}
 
 		if (!code.trim()) {
-			notifyError('Groq returned empty test code. Please try again.');
+			notifyError('Server returned empty test code. Please try again.');
 			return;
 		}
 
-		// ── Step 4: Determine output filename ─────────────────────────────────────
-
 		const filename = this.resolveTestCodeFilename();
 		const language = this.resolveLanguage();
-
-		// ── Step 5: Send to webview for preview ───────────────────────────────────
 
 		void this.view?.webview.postMessage({
 			command: 'testCode',
@@ -633,8 +630,6 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 				code
 			}
 		});
-
-		// ── Step 6: Save to generated-tests/ and open in editor ──────────────────
 
 		try {
 			await this.saveAndOpenTestCode(filename, code);
