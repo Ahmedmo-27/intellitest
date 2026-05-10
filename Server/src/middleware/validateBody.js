@@ -109,7 +109,10 @@ export function validateGenerateTestCode(req, res, next) {
     });
   }
 
-  req.generateTestCodeBody = { framework, generateResponsePayload: payload };
+  const rawHints = b.localConfigHints != null ? String(b.localConfigHints) : "";
+  const localConfigHints = rawHints.length > 16_000 ? rawHints.slice(0, 16_000) : rawHints;
+
+  req.generateTestCodeBody = { framework, generateResponsePayload: payload, localConfigHints };
   next();
 }
 

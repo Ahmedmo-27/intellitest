@@ -44,6 +44,7 @@ export const db = Object.freeze({
 
 // ── AI Provider ───────────────────────────────────────────────────────────────
 const provider = optionalEnv("LLM_PROVIDER", "ollama").toLowerCase();
+const apiModelResolved = optionalEnv("API_MODEL", "llama-3.3-70b-versatile");
 
 export const ai = Object.freeze({
   provider,
@@ -55,7 +56,10 @@ export const ai = Object.freeze({
   // OpenAI-compatible API (Groq default; set API_BASE_URL for OpenAI and others)
   apiBase: optionalEnv("API_BASE_URL", "https://api.groq.com/openai/v1"),
   apiKey: optionalEnv("API_KEY", optionalEnv("GROQ_API_KEY", "")),
-  apiModel: optionalEnv("API_MODEL", "llama-3.3-70b-versatile"),
+  apiModel: apiModelResolved,
+
+  /** Executable test code uses the same HTTP credentials; override model only if needed. */
+  codeGenApiModel: optionalEnv("CODE_GEN_API_MODEL", apiModelResolved),
 
   // Timeouts & retries
   timeoutMs: optionalInt("AI_TIMEOUT_MS", 30_000),

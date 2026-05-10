@@ -87,7 +87,10 @@ export async function generateTests(req, res) {
     logTerminalSection("POST /generate-tests — payload", req.projectMap ?? req.body);
 
     const prompt     = promptService.generateTestScriptsPrompt(req.projectMap);
-    const raw        = await complete(prompt, { validator: makeQuickValidator(TEST_SCRIPT_SCHEMA) });
+    const raw        = await complete(prompt, {
+      purpose: "codeGen",
+      validator: makeQuickValidator(TEST_SCRIPT_SCHEMA),
+    });
     const validation = runValidationPipeline(raw, TEST_SCRIPT_SCHEMA);
 
     if (!validation.ok) {

@@ -32,6 +32,62 @@ export function buildErrorPayload(source, type, message, detail) {
   return { source, type, message, ...(detail !== undefined ? { detail } : {}) };
 }
 
+/**
+ * Groq reasoning models (e.g. gpt-oss) may prefix XML-like blocks or prose before JSON/code.
+ * Strip those so structural JSON validation succeeds.
+ *
+ * @param {string} text
+ * @param {"testCases"|"codeGen"} purpose
+ * @returns {string}
+ */
+export function sanitizeModelOutput(text, purpose = "testCases") {
+  if (typeof text !== "string") return text;
+
+  let s = text;
+
+  // Paired blocks (case-insensitive)
+  s = s.replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, "");
+  s = s.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+
+  // Unclosed <think>… (no </think> before the payload)
+  while (/<think>/i.test(s)) {
+    const start = s.search(/<think>/i);
+    const tail = s.slice(start);
+    const endIdx = tail.indexOf("</think>");
+    if (endIdx !== -1) {
+      s = s.slice(0, start) + tail.slice(endIdx + "</think>".length);
+    } else {
+      const inner = tail.replace(/^<think>\s*/i, "");
+      if (purpose === "codeGen") {
+        const fence = inner.indexOf("```");
+        const body = fence >= 0 ? inner.slice(fence) : inner.trimStart();
+        s = s.slice(0, start) + body;
+      } else {
+        const jsonStart = inner.search(/[\[{]/);
+        s = s.slice(0, start) + (jsonStart >= 0 ? inner.slice(jsonStart) : inner).trimStart();
+      }
+      break;
+    }
+    s = s.trimStart();
+  }
+
+  s = s.trimStart();
+
+  // JSON responses: allow leading whitespace then [ or { only; else cut to first root bracket
+  if (purpose !== "codeGen") {
+    if (!/^[\s]*[\[{]/.test(s)) {
+      const iBracket = s.indexOf("[");
+      const iBrace = s.indexOf("{");
+      const candidates = [iBracket, iBrace].filter((i) => i >= 0);
+      if (candidates.length > 0) {
+        s = s.slice(Math.min(...candidates)).trimStart();
+      }
+    }
+  }
+
+  return s;
+}
+
 // ── Provider adapters ─────────────────────────────────────────────────────────
 
 /**
@@ -65,13 +121,13 @@ async function callOllama(prompt, signal) {
 }
 
 /**
- * Single call to an OpenAI-compatible HTTP API (Groq, OpenAI, etc.).
- * @param {string} prompt
- * @param {AbortSignal} signal
- * @returns {Promise<string>}
+ * Single call to an OpenAI-compatible HTTP API (Groq, OpenAI, Agent Router, etc.).
+ *
+ * @param {{ apiBase: string, apiKey: string, model: string, appendGroq429Hint?: boolean }} creds
  */
-async function callOpenAICompatible(prompt, signal) {
-  if (!cfg.apiBase || !cfg.apiKey) {
+async function callOpenAICompatible(prompt, signal, creds) {
+  const { apiBase, apiKey, model, appendGroq429Hint } = creds;
+  if (!apiBase?.trim() || !apiKey?.trim()) {
     throw new AiError(
       "backend",
       "MissingConfig",
@@ -79,9 +135,9 @@ async function callOpenAICompatible(prompt, signal) {
     );
   }
 
-  const url  = `${cfg.apiBase.replace(/\/$/, "")}/chat/completions`;
+  const url  = `${apiBase.replace(/\/$/, "")}/chat/completions`;
   const body = {
-    model:       cfg.apiModel,
+    model,
     messages:    [{ role: "user", content: prompt }],
     temperature: 0.2,
   };
@@ -91,7 +147,7 @@ async function callOpenAICompatible(prompt, signal) {
       signal,
       timeout: cfg.timeoutMs + 5_000,
       headers: {
-        Authorization:  `Bearer ${cfg.apiKey}`,
+        Authorization:  `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
     });
@@ -107,13 +163,16 @@ async function callOpenAICompatible(prompt, signal) {
     const detail   = apiHint || e.message;
 
     logger.error("api_call_failed", { message: detail, status });
-    throw new AiError(
-      "AI",
-      "ProviderError",
-      apiHint
-        ? `LLM API error (${status ?? "?"}): ${apiHint}`
-        : `LLM API request failed: ${e.message}`
-    );
+
+    let message = apiHint
+      ? `LLM API error (${status ?? "?"}): ${apiHint}`
+      : `LLM API request failed: ${e.message}`;
+
+    if (status === 429 && appendGroq429Hint && /groq\.com/i.test(String(apiBase ?? ""))) {
+      message += " Groq rate limit — retry later or check quota at console.groq.com.";
+    }
+
+    throw new AiError("AI", "ProviderError", message);
   }
 }
 
@@ -135,12 +194,29 @@ function extractApiErrorMessage(body) {
  *
  * @param {string} prompt
  * @param {AbortSignal} signal
+ * @param {"testCases"|"codeGen"} purpose
  * @returns {Promise<string>}
  */
-function callProvider(prompt, signal) {
-  return cfg.provider === "api"
-    ? callOpenAICompatible(prompt, signal)
-    : callOllama(prompt, signal);
+function callProvider(prompt, signal, purpose) {
+  if (cfg.provider !== "api") {
+    return callOllama(prompt, signal);
+  }
+
+  if (purpose === "codeGen") {
+    return callOpenAICompatible(prompt, signal, {
+      apiBase: cfg.apiBase,
+      apiKey: cfg.apiKey,
+      model: cfg.codeGenApiModel,
+      appendGroq429Hint: true,
+    });
+  }
+
+  return callOpenAICompatible(prompt, signal, {
+    apiBase: cfg.apiBase,
+    apiKey: cfg.apiKey,
+    model: cfg.apiModel,
+    appendGroq429Hint: false,
+  });
 }
 
 // ── Timeout wrapper ───────────────────────────────────────────────────────────
@@ -182,6 +258,7 @@ const CORRECTION_PREFIX =
 export async function completeWithRetry(fn, initialPrompt, validator, opts = {}) {
   const maxRetries     = opts.maxRetries      ?? cfg.maxRetries;
   const correctionPfx  = opts.correctionPrompt ?? CORRECTION_PREFIX;
+  const purpose        = opts.purpose ?? "testCases";
 
   let prompt    = initialPrompt;
   let lastRaw   = "";
@@ -189,7 +266,8 @@ export async function completeWithRetry(fn, initialPrompt, validator, opts = {})
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const raw = await fn(prompt);
+      const rawModel = await fn(prompt);
+      const raw = sanitizeModelOutput(rawModel, purpose);
       lastRaw = raw;
 
       if (validator(raw)) {
@@ -200,7 +278,7 @@ export async function completeWithRetry(fn, initialPrompt, validator, opts = {})
       logger.warn("ai_output_invalid", { attempt, preview: raw.slice(0, 200) });
 
       if (attempt < maxRetries) {
-        prompt = `${correctionPfx}Previous bad response:\n${raw.slice(0, 800)}\n\nOriginal instruction:\n${initialPrompt}`;
+        prompt = `${correctionPfx}Previous bad response:\n${rawModel.slice(0, 800)}\n\nOriginal instruction:\n${initialPrompt}`;
       }
     } catch (err) {
       lastError = err;
@@ -230,20 +308,21 @@ export async function completeWithRetry(fn, initialPrompt, validator, opts = {})
  * Primary entry-point used by controllers.
  *
  * @param {string} prompt
- * @param {{ validator?: (raw: string) => boolean, correctionPrompt?: string, maxRetries?: number }} [opts]
+ * @param {{ validator?: (raw: string) => boolean, correctionPrompt?: string, maxRetries?: number, purpose?: "testCases"|"codeGen" }} [opts]
  * @returns {Promise<string>} raw model text
  */
 export async function complete(prompt, opts = {}) {
   logTerminalSection("AI → prompt", prompt);
 
   const validator = opts.validator ?? (() => true);
+  const purpose = opts.purpose ?? "testCases";
 
   try {
     const raw = await completeWithRetry(
-      (p) => withTimeout((signal) => callProvider(p, signal), cfg.timeoutMs),
+      (p) => withTimeout((signal) => callProvider(p, signal, purpose), cfg.timeoutMs),
       prompt,
       (r) => typeof r === "string" && r.trim().length > 0 && validator(r),
-      opts
+      { ...opts, purpose }
     );
 
     logTerminalSection("AI → raw output", raw);
