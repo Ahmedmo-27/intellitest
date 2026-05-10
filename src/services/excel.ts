@@ -23,13 +23,12 @@ function toSheetRows(testCases: TestCaseRow[]): Array<Record<string, string>> {
 		Preconditions: testCase.preconditions,
 		Steps: testCase.steps,
 		'Expected Result': testCase.expectedResult,
-		Priority: testCase.priority,
-		Comments: testCase.comments || ''
+		Priority: testCase.priority
 	}));
 }
 
 function calculateColumnWidths(rows: Array<Record<string, string>>): Array<{ wch: number }> {
-	const keys = ['Test Case ID', 'Title', 'Description', 'Preconditions', 'Steps', 'Expected Result', 'Priority', 'Comments'];
+	const keys = ['Test Case ID', 'Title', 'Description', 'Preconditions', 'Steps', 'Expected Result', 'Priority'];
 	return keys.map(key => {
 		let max = key.length;
 		for (const row of rows) {

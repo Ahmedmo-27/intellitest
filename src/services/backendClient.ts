@@ -197,12 +197,14 @@ export async function generateViaBackendV2(
 	workspaceRootPath: string | undefined,
 	detectedStack: string,
 	userPrompt: string,
-	authToken?: string
+	authToken?: string,
+	onProgress?: (phase: string) => void
 ): Promise<IntelliGenerationResult> {
 	const root = baseUrl.replace(/\/$/, '');
 
 	// PASS 1: Pre-flight check
 	// Grab lightweight file list (no AST parsing yet)
+	onProgress?.('Scanning workspace…');
 	const lightweightFiles = listProjectRelativePaths(workspaceRootPath, 1000);
 	
 	// Ask backend to map prompt to features and dependencies
@@ -238,6 +240,7 @@ export async function generateViaBackendV2(
 	// PASS 2: Targeted Generation
 	// Build map using ONLY the relevant files
 	console.log(`[Debuggo Pass 2] Building project map with ${relevantFiles ? 'whitelist' : 'full project'}...`);
+	onProgress?.('Extracting symbols…');
 	const projectMap = await buildProjectMap(workspaceRootPath, detectedStack, userPrompt, relevantFiles);
 
 	console.log(`[Debuggo Final Payload] Sending to LLM:
@@ -245,8 +248,11 @@ export async function generateViaBackendV2(
 - Files fully parsed (Code Insights): ${projectMap.codeInsights.length}
 - Target Modules: ${projectMap.modules.length}`);
 
+	onProgress?.('Building AI context…');
+
 	let data: { testCases?: ServerTestCase[]; meta?: unknown; error?: string; detail?: string; message?: string };
 	try {
+		onProgress?.('Generating test cases…');
 		const res = await axios.post(`${root}/generate`, {
 			projectId,
 			prompt: userPrompt,
@@ -299,7 +305,9 @@ export async function generateTestCodeViaBackend(
 	authToken?: string
 ): Promise<string> {
 	const root = baseUrl.replace(/\/$/, '');
+	onProgress?.('Preparing test code…');
 	try {
+		onProgress?.('Generating test code…');
 		const res = await axios.post<{ code?: string }>(
 			`${root}/generate-test-code`,
 			body,
