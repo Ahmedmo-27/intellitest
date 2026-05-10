@@ -22,12 +22,15 @@ Primary objective:
 
 ## Core Features
 - Sidebar UI inside VS Code
-- Prompt input field for test generation requests
+- Prompt input field for test generation requests (compact optional example “Try …” chips when idle)
 - AI-generated structured test cases
+- Test code preview in **Generated code** (from scenarios + backend)
 - Automatic tech stack detection from project files
 - Recommended testing framework from AI response
-- Tabular preview of generated test cases in the sidebar
+- **Code insights** — AST-derived symbols per file with collapsible rows (see Sidebar webview)
+- Tabular preview of generated test cases in the sidebar (collapsible cards)
 - Excel export of generated test cases
+- **Optional account** — sign-in persists JWT for per-user history; workspace remains usable without an account once `debuggo.backendUrl` is set
 
 ## Tech Stack
 - VS Code Extension API
@@ -54,25 +57,26 @@ High-level component responsibilities:
 - [webview/debuggo.js](webview/debuggo.js): frontend behavior, state updates, and message handling
 
 ### Message Passing Model
-Communication is event-driven between webview and extension host (`IntelliTestViewProvider`).
+Communication is event-driven between webview and extension host ([`DebuggoViewProvider`](src/providers/DebuggoViewProvider.ts)).
 
 Webview → extension commands:
-- `ready` — webview mounted; triggers auth bootstrap (`GET /auth/me` when a stored JWT exists) or shows the gate
-- `login` / `signup` — email/password (+ name on sign-up); on success JWT is stored and the full UI loads
-- `logout` — deletes stored JWT and returns to the gate
+- `ready` — webview mounted; triggers auth bootstrap (`GET /auth/me` when a stored JWT exists) and `authState` / banners for backend URL and errors
+- `login` / `signup` — email/password (+ name on sign-up); on success JWT is stored, Account panel closes, **Log out** appears in the header (workspace was already usable as guest if backend URL was set)
+- `logout` — deletes stored JWT; guest UI remains with **Sign in** visible
 - `retryAuth` — re-runs bootstrap after a connection failure
 - `generate`, `syncProject`, `exportExcel`, `refreshCodeInsights`, test script clipboard/save commands (unchanged)
 
 Extension → webview commands (non-exhaustive):
-- `authState` — `{ authenticated, needsBackendUrl?, user?, bootstrapError? }` toggles **gate-only** vs **full sidebar**
-- `authError` / `authErrorClear`, `authBusy` — gate form validation and UX
+- `authState` — `{ authenticated, needsBackendUrl?, user?, bootstrapError? }`; drives optional auth chrome (Sign in / Log out), banners, and `needsBackendUrl` disables generation until backend URL is configured — **guest-first**: main workspace stays visible when unauthenticated if backend URL is set
+- `authError` / `authErrorClear`, `authBusy` — Account form validation and UX
 - `resetMainUi` — clears preview table and prompt after logout or session expiry
 - `init`, `sessionLoaded`, `result`, `exportStatus`, `codeInsights`
 
 ### Authentication (extension)
-- Until the user is authenticated with the IntelliTest **server**, the sidebar shows only the **login / sign-up** gate (VS Code theme tokens). The main generator UI is hidden (`#appWorkspace`).
+- **Guest-first:** The main sidebar (`#appWorkspace` — prompt, insights, test cases, generated code) is available without signing in once `debuggo.backendUrl` is configured. Signing in is **optional** for server-side persistence.
+- Optional **Account** panel: collapsible card opened from header **Sign in**; **×** / **Escape** closes; **Log in / Sign up** tabs and **Continue** submit; inline errors and connection **Retry** when bootstrap fails (see `webview/debuggo.html` / `.dg-auth-card` in CSS).
 - JWT from `POST /auth/login` or `POST /auth/signup` is stored via `ExtensionContext.secrets` (`intellitest.authJwt`). It survives restarting VS Code on the same machine until logout or JWT expiry (`JWT_EXPIRES_IN` on server, default 7 days).
-- All stateful backend calls from the extension include `Authorization: Bearer <token>` so MongoDB persists and loads **per userId + projectId** (messages, context, generations).
+- Backend calls attach `Authorization: Bearer <token>` when present so MongoDB persists and loads **per userId + projectId** (messages, context, generations).
 
 ## AI Integration
 The extension uses Groq’s OpenAI-compatible Chat Completions API as the default external LLM provider (configurable via environment variables).
@@ -122,6 +126,18 @@ Scope behavior:
 - Keep interactions clear and low-friction
 - Keep loading states explicit for generation and export actions
 
+### Sidebar webview (Debuggo panel) — current behavior
+Paths: [webview/debuggo.html](webview/debuggo.html), [webview/debuggo.css](webview/debuggo.css), [webview/debuggo.js](webview/debuggo.js).
+
+- **Code insights**
+  - File list renders as `<details>` rows; expanding/collapses the body uses a `.insight-drawer` CSS grid animation (`grid-template-rows: 0fr` → `1fr`) plus chevron rotation — keep markup (`insight-drawer` / `insight-drawer-inner`) and tokens aligned if changing layout.
+  - Row styling stays **neutral** (list hover, no loud “focused card” borders on open); inner symbol blocks (`insight-block-*`) use subtle borders and themed accent hints.
+  - **Pagination:** `INSIGHTS_PAGE_SIZE` in `webview/debuggo.js` (default **4** files per page) keeps the insights block compact relative to **Generated code**. Pagination UI is **‹ Prev** / **Page N of M** / **Next ›** — not a grid of numbered page buttons.
+  - The insights scroll area uses `.insights-panel.dg-scroll-pane` with a capped `max-height` (paired with `.insight-drawer-inner` max-height) to limit vertical growth in the sidebar.
+  - Insight list clicks use **one delegated handler** on `#insightsList` for `.insight-fn` (prefill prompt) and pager buttons — do not attach per-render listeners inside `renderCodeInsights` or handlers will stack.
+- **Prompt:** Example chips (`.prompt-chips` / `.prompt-chip`) use compact typography; visibility follows backend readiness + generation state (`updatePromptChipsVisibility`).
+- **Auth card:** Closing uses timed `hidden` **after** removing `.auth-gate--open` — debounce ≥ longest CSS transition (~320ms + buffer, see `closeAuthPanel` in `debuggo.js`).
+
 ## Required Test Case Data Format
 Every generated test case must map to this exact structure:
 
@@ -144,8 +160,8 @@ Additional output requirement:
 - Prioritize prompt intent over unrelated assumptions
 
 ## Extension Workflow
-1. User signs in or creates an account (gate); JWT stored in SecretStorage
-2. Extension loads workspace `projectId`, optional session from `GET /project/:id/init` (scoped to logged-in user)
+1. User sets backend URL; may use the extension as a **guest** or opens **Sign in** to create an account / log in (JWT in SecretStorage when authenticated)
+2. Extension loads workspace `projectId`, optional session from `GET /project/:id/init` (scoped to logged-in user when token present)
 3. User enters prompt in sidebar
 4. Extension has detected tech stack context (and may sync file list for the backend graph)
 5. Backend-driven AI generates structured test cases plus recommended framework

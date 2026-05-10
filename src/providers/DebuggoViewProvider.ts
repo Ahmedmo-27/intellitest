@@ -495,8 +495,11 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			void vscode.window.showErrorMessage(
 				'Debuggo: set debuggo.backendUrl in Settings (default hosted API: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local server).'
 			);
+			void this.view?.webview.postMessage({ command: 'generationEnded' });
 			return;
 		}
+
+		const wv = this.view?.webview;
 
 		try {
 			const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -504,27 +507,37 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			this.latestGenerated = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'Debuggo: generating test cases…',
+					title: 'Debuggo',
 					cancellable: false
 				},
-				async () =>
-					generateViaBackendV2(
+				async progress => {
+					const report = (message: string) => {
+						progress.report({ message });
+						void wv?.postMessage({ command: 'generationProgress', text: message, phase: 'cases' });
+					};
+					return generateViaBackendV2(
 						backendUrl,
 						this.projectId,
 						workspaceRootPath,
 						this.detectedStack,
 						prompt,
-						this.authToken
-					)
+						this.authToken,
+						report
+					);
+				}
 			);
 
 			this.recommendedTestingFramework =
 				detectRecommendedTestingFramework(workspaceRootPath) || this.recommendedTestingFramework;
 
 			this.postResult(this.latestGenerated);
-
-			void vscode.window.showInformationMessage('Debuggo: test cases are ready in the panel.');
+			if (this.latestGenerated.testCases.length > 0) {
+				void vscode.window.showInformationMessage(
+					'Debuggo: Test cases are ready — check the Debuggo panel.'
+				);
+			}
 		} catch (error) {
+			void wv?.postMessage({ command: 'generationEnded' });
 			if (error instanceof UnauthorizedApiError) {
 				await this.clearSessionDueToUnauthorized();
 				return;
@@ -538,7 +551,8 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 	private async handleGenerateTestCode(): Promise<void> {
 		const notifyError = (msg: string) => {
-			void vscode.window.showErrorMessage(`IntelliTest: ${msg}`);
+			void vscode.window.showErrorMessage(`Debuggo: ${msg}`);
+			void this.view?.webview.postMessage({ command: 'testCodeEnded' });
 			void this.view?.webview.postMessage({ command: 'testCode', testScript: null });
 		};
 
@@ -585,27 +599,31 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 					usedExcelFallback ? 'excel-import' : 'rows-without-prior-generate-json'
 				);
 
-		void vscode.window.showInformationMessage(
-			'IntelliTest: Generating test code via server from your test cases…'
-		);
+		const wv = this.view?.webview;
 
 		let code: string;
 		try {
 			code = await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'IntelliTest: Generating test code via server…',
+					title: 'IntelliTest: test code',
 					cancellable: false
 				},
-				async () =>
-					generateTestCodeViaBackend(
+				async progress => {
+					const report = (message: string) => {
+						progress.report({ message });
+						void wv?.postMessage({ command: 'testCodeProgress', text: message });
+					};
+					return generateTestCodeViaBackend(
 						backendUrl,
 						{
 							framework: this.recommendedTestingFramework,
 							generateResponsePayload
 						},
-						this.authToken
-					)
+						this.authToken,
+						report
+					);
+				}
 			);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -631,10 +649,18 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			}
 		});
 
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		if (!folder) {
+			void vscode.window.showWarningMessage(
+				'Debuggo: Test code generated — open the Debuggo panel to copy it. Use a workspace folder next time to auto-save under generated-tests/.'
+			);
+			return;
+		}
+
 		try {
 			await this.saveAndOpenTestCode(filename, code);
 			void vscode.window.showInformationMessage(
-				`IntelliTest: Test code generated successfully → generated-tests/${filename}`
+				`Debuggo: Test code saved to generated-tests/${filename} (opened in editor).`
 			);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -666,9 +692,6 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	private async saveAndOpenTestCode(filename: string, code: string): Promise<void> {
 		const folder = vscode.workspace.workspaceFolders?.[0];
 		if (!folder) {
-			void vscode.window.showWarningMessage(
-				'IntelliTest: No workspace folder open — test code was not saved to disk.'
-			);
 			return;
 		}
 
@@ -690,11 +713,18 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	// ── Clipboard / file ops ──────────────────────────────────────────────────────
 
 	private async handleCopyTestScript(code: string): Promise<void> {
+		const wv = this.view?.webview;
 		if (!code?.trim()) {
+			void wv?.postMessage({ command: 'copyFeedback', success: false });
 			return;
 		}
-		await vscode.env.clipboard.writeText(code);
-		void vscode.window.showInformationMessage('Test script copied to clipboard.');
+		try {
+			await vscode.env.clipboard.writeText(code);
+			void wv?.postMessage({ command: 'copyFeedback', success: true });
+		} catch {
+			void wv?.postMessage({ command: 'copyFeedback', success: false });
+			void vscode.window.showErrorMessage('Debuggo: could not copy to the clipboard.');
+		}
 	}
 
 	private async handleSaveTestScript(filename: string, code: string): Promise<void> {
@@ -749,7 +779,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			this.lastExcelPath = outputUri.fsPath;
 
 			const action = await vscode.window.showInformationMessage(
-				'Test cases generated successfully.',
+				'Debuggo: Spreadsheet exported. You can attach it later for Generate Test Code.',
 				'Open Folder'
 			);
 
@@ -795,12 +825,25 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 				files: insights.files,
 				totalAnalyzedFiles: insights.totalAnalyzedFiles
 			});
+			if (forceRefresh) {
+				const n = insights.files.length;
+				void vscode.window.showInformationMessage(
+					n > 0
+						? `Debuggo: Code insights refreshed (${n} ${n === 1 ? 'file' : 'files'}).`
+						: 'Debuggo: Code insights refreshed (no symbols in view).'
+				);
+			}
 		} catch {
 			void this.view?.webview.postMessage({
 				command: 'codeInsights',
 				files: [],
 				totalAnalyzedFiles: 0
 			});
+			if (forceRefresh) {
+				void vscode.window.showWarningMessage(
+					'Debuggo: Could not refresh code insights — check that a workspace folder is open.'
+				);
+			}
 		}
 	}
 }

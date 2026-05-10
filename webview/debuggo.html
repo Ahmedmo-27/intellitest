@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https:; style-src {{cspSource}}; script-src {{cspSource}};">
     <title>Debuggo</title>
+    <link rel="stylesheet" href="{{highlightCssUri}}">
     <link rel="stylesheet" href="{{styleUri}}">
 </head>
 <body>
@@ -22,15 +23,24 @@
                 </div>
                 <div class="header-actions">
                     <span id="userLabel" class="user-label" title="Signed-in account"></span>
-                    <button type="button" id="signInAccountButton" class="btn-secondary btn-compact">Sign in or create account</button>
-                    <button id="logoutButton" class="btn-secondary btn-compact" type="button" hidden>Log out</button>
-                    <button id="syncProjectButton" class="btn-secondary" type="button" title="Rebuild the project dependency map from your workspace files. Use after adding, removing, or renaming files or folders.">Sync Workspace</button>
+                    <button type="button" id="signInAccountButton" class="dg-ghost-btn dg-header-btn" title="Create an account or sign in — optional">
+                        Sign in
+                    </button>
+                    <button type="button" id="logoutButton" class="dg-ghost-btn dg-header-btn" hidden title="Sign out of Debuggo">
+                        Log out
+                    </button>
+                    <button type="button" id="syncProjectButton" class="dg-ghost-btn dg-header-btn dg-header-btn-strong" title="Rebuild the project dependency map from your workspace files. Use after adding, removing, or renaming files or folders.">Sync</button>
                 </div>
             </div>
 
-            <section id="authGate" class="auth-gate auth-gate-panel" aria-label="Sign in to Debuggo" hidden>
-                <h2 class="auth-title">Account</h2>
-                <p class="auth-lead">Optional: create an account or sign in to persist project sessions and synced graphs on the server. You can use Debuggo as a guest without signing in.</p>
+            <section id="authGate" class="auth-gate auth-gate-panel dg-auth-card" aria-label="Sign in to Debuggo" hidden>
+                <header class="auth-card-head">
+                    <div class="auth-head-top">
+                        <h2 class="auth-title">Account</h2>
+                        <button type="button" id="cancelAuthPanelBtn" class="auth-panel-dismiss" aria-label="Close panel">×</button>
+                    </div>
+                    <p class="auth-lead dg-muted-copy">Optional sign-in persists sessions on the server. Guests can use Debuggo without an account.</p>
+                </header>
 
                 <div class="auth-mode-row" role="tablist" aria-label="Account mode">
                     <button type="button" id="modeLoginBtn" class="auth-tab active" role="tab" aria-selected="true">Log in</button>
@@ -38,23 +48,22 @@
                 </div>
 
                 <form id="authForm" class="auth-form" novalidate>
-                    <div id="nameFieldWrap" class="form-group" hidden>
+                    <div id="nameFieldWrap" class="form-group dg-auth-field" hidden>
                         <label for="authName">Name</label>
-                        <input id="authName" class="input-field" type="text" autocomplete="name" minlength="1" />
+                        <input id="authName" class="input-field dg-auth-input" type="text" autocomplete="name" minlength="1" />
                     </div>
-                    <div class="form-group">
+                    <div class="form-group dg-auth-field">
                         <label for="authEmail">Email</label>
-                        <input id="authEmail" class="input-field" type="email" required autocomplete="email" />
+                        <input id="authEmail" class="input-field dg-auth-input" type="email" required autocomplete="email" />
                     </div>
-                    <div class="form-group">
+                    <div class="form-group dg-auth-field">
                         <label for="authPassword">Password</label>
-                        <input id="authPassword" class="input-field" type="password" required autocomplete="current-password" />
+                        <input id="authPassword" class="input-field dg-auth-input" type="password" required autocomplete="current-password" />
                     </div>
                     <p id="authInlineError" class="auth-inline-error" role="alert" hidden></p>
                     <div class="auth-actions">
                         <button type="submit" id="authSubmitBtn" class="btn-primary auth-submit">Continue</button>
-                        <button type="button" id="authRetryBtn" class="btn-secondary auth-retry" hidden>Retry connection</button>
-                        <button type="button" id="cancelAuthPanelBtn" class="btn-secondary">Close</button>
+                        <button type="button" id="authRetryBtn" class="dg-ghost-btn auth-footer-ghost" hidden>Retry</button>
                     </div>
                 </form>
             </section>
@@ -79,57 +88,80 @@
             <div class="actions">
                 <button id="generateButton" class="btn-primary">Generate Test Cases</button>
                 <button id="exportButton" class="btn-secondary actions-outline" disabled>Export to Excel</button>
-                <button id="generateCodeButton" class="btn-secondary actions-outline" disabled>Generate Test Code</button>
+                <button id="generateCodeButton" class="btn-secondary actions-outline btn-generate-context" disabled>Generate code</button>
             </div>
 
-            <div class="output-section panel-shell testcases-shell">
-                <div class="testcases-header-bar section-header-sticky">
-                    <button id="testcasesVisibilityButton" class="insights-visibility" type="button" aria-expanded="true">
-                        <span id="testcasesVisibilityArrow" class="insights-visibility-arrow" aria-hidden="true">▾</span>
-                        <span class="insights-header-title">Test Cases</span>
+            <p id="generationStatus" class="generation-status" role="status" aria-live="polite" hidden></p>
+
+            <div id="promptChips" class="prompt-chips" role="group" aria-label="Example prompts" hidden>
+                <span class="prompt-chips-lead">Try</span>
+                <button type="button" class="prompt-chip" data-prompt="Generate test cases covering login edge cases: invalid credentials, locked accounts, SSO timeout, password reset flows.">Login edge cases</button>
+                <button type="button" class="prompt-chip" data-prompt="Generate test cases for checkout validation: cart limits, expired coupons, address validation errors, payment failure handling.">Checkout validation</button>
+                <button type="button" class="prompt-chip" data-prompt="Generate test cases for JWT authentication: malformed tokens, expired tokens, revoked refresh tokens, role-based access.">JWT authentication</button>
+            </div>
+
+            <section class="dg-section-shell testcases-shell" aria-labelledby="testcasesHeading">
+                <header class="dg-section-head">
+                    <button id="testcasesVisibilityButton" class="dg-section-toggle" type="button" aria-expanded="true">
+                        <span id="testcasesVisibilityArrow" class="dg-toggle-chevron" aria-hidden="true">▾</span>
+                        <span id="testcasesHeading" class="dg-section-heading">Test cases</span>
                     </button>
-                </div>
-                <div id="testcasesPanel" class="testcases-panel">
-                    <div id="previewCards" class="tc-card-list">
-                        <div class="tc-empty">No test cases generated yet.</div>
+                    <span class="dg-secondary-hint dg-section-hint" id="testcasesSectionHint"></span>
+                </header>
+                <div id="testcasesCollapse" class="dg-collapsible" data-collapsed="false">
+                    <div class="dg-collapsible-fill">
+                        <div id="testcasesPanel" class="dg-scroll-pane testcases-panel">
+                            <div id="previewCards" class="tc-card-list">
+                                <div class="tc-empty dg-muted-copy">Generate from a prompt above to see scenarios here.</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="output-section panel-shell insights-shell">
-                <div class="insights-header-bar section-header-sticky">
-                    <button id="insightsVisibilityButton" class="insights-visibility" type="button" aria-expanded="true">
-                        <span id="insightsVisibilityArrow" class="insights-visibility-arrow" aria-hidden="true">▾</span>
-                        <span class="insights-header-title">Code Insights</span>
+            <section class="dg-section-shell insights-shell" aria-labelledby="insightsHeading">
+                <header class="dg-section-head dg-section-head-toolbar">
+                    <button id="insightsVisibilityButton" class="dg-section-toggle" type="button" aria-expanded="true">
+                        <span id="insightsVisibilityArrow" class="dg-toggle-chevron" aria-hidden="true">▾</span>
+                        <span id="insightsHeading" class="dg-section-heading">Code insights</span>
                     </button>
-                    <button id="refreshInsightsButton" class="btn-secondary" type="button">Refresh</button>
+                    <button id="refreshInsightsButton" class="dg-ghost-btn" type="button">Refresh</button>
+                </header>
+                <div id="insightsCollapse" class="dg-collapsible" data-collapsed="false">
+                    <div class="dg-collapsible-fill">
+                        <div id="insightsPanel" class="dg-scroll-pane insights-panel">
+                            <div id="insightsEmpty" class="insights-empty dg-muted-copy">Analyze symbols after opening a workspace folder.</div>
+                            <div id="insightsList" class="insights-list" style="display: none;"></div>
+                        </div>
+                    </div>
                 </div>
-                <div id="insightsPanel" class="insights-panel" style="display: block;">
-                    <div id="insightsEmpty" class="insights-empty">Code insights not available.</div>
-                    <div id="insightsList" class="insights-list" style="display: none;"></div>
-                </div>
-            </div>
+            </section>
 
-            <div class="output-section panel-shell script-shell" id="scriptSection">
-                <div class="script-header-bar section-header-sticky script-sticky-head">
-                    <button id="scriptVisibilityButton" class="insights-visibility" type="button" aria-expanded="true">
-                        <span id="scriptVisibilityArrow" class="insights-visibility-arrow" aria-hidden="true">▾</span>
-                        <span class="insights-header-title">Generated Test Code</span>
+            <section class="dg-section-shell script-shell" id="scriptSection" aria-labelledby="scriptHeading">
+                <header class="dg-section-head dg-section-head-toolbar">
+                    <button id="scriptVisibilityButton" class="dg-section-toggle" type="button" aria-expanded="true">
+                        <span id="scriptVisibilityArrow" class="dg-toggle-chevron" aria-hidden="true">▾</span>
+                        <span id="scriptHeading" class="dg-section-heading">Generated code</span>
                     </button>
                     <div class="script-toolbar-actions" id="scriptToolbarActions">
-                        <button type="button" id="copyScriptButton" class="btn-secondary" disabled>Copy code</button>
-                        <button type="button" id="saveScriptButton" class="btn-secondary" disabled>Save to workspace…</button>
+                        <button type="button" id="copyScriptButton" class="dg-ghost-btn" disabled>Copy</button>
+                        <button type="button" id="saveScriptButton" class="dg-ghost-btn" disabled>Save…</button>
+                    </div>
+                </header>
+                <div id="scriptCollapse" class="dg-collapsible" data-collapsed="false">
+                    <div class="dg-collapsible-fill">
+                        <div id="scriptInnerPanel" class="script-inner-panel">
+                            <div id="scriptMeta" class="script-meta" hidden></div>
+                            <div id="scriptPlaceholder" class="script-placeholder dg-muted-copy"></div>
+                            <pre class="script-pre" id="scriptPreOuter" aria-label="Generated test code" hidden><code id="scriptPre" class="hljs"></code></pre>
+                        </div>
                     </div>
                 </div>
-                <div id="scriptInnerPanel" class="script-inner-panel">
-                    <div id="scriptMeta" class="script-meta" hidden></div>
-                    <div id="scriptPlaceholder" class="script-placeholder"></div>
-                    <pre class="script-pre" id="scriptPre" aria-label="Generated test code" hidden></pre>
-                </div>
-            </div>
+            </section>
         </div>
     </main>
 
+    <script src="{{highlightScriptUri}}"></script>
     <script src="{{scriptUri}}"></script>
 </body>
 </html>
