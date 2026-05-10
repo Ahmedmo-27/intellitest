@@ -908,6 +908,7 @@ label {
 	flex-wrap: wrap;
 	gap: 4px 6px;
 	padding: 4px 2px;
+	min-width: 0;
 }
 
 .insight-file-name::-webkit-details-marker {
@@ -1101,6 +1102,11 @@ label {
 .insights-pager-btn:disabled {
 	opacity: 0.38;
 	cursor: not-allowed;
+}
+
+.insights-pager-btn:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
 }
 
 .insights-pager-meta {
@@ -1482,12 +1488,6 @@ label {
 .insight-fn {
 	word-break: break-word;
 	overflow-wrap: anywhere;
-}
-
-.insight-file-name {
-	min-width: 0;
-	flex-wrap: wrap;
-	align-items: flex-start;
 }
 
 .insight-file-base {

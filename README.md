@@ -6,11 +6,14 @@ Debuggo is a VS Code sidebar extension that helps developers and testers generat
 
 ## Features
 
-- AI-powered test case generation
-- VS Code sidebar UI
+- AI-powered test case generation (and optional **Generate code** → **Generated code** panel in the sidebar)
+- VS Code sidebar UI with collapsible sections (test cases, code insights, generated script)
+- **Code insights**: AST-derived symbols per file, collapsible file rows with animated expand, compact Prev/Next pagination
+- Compact example prompt chips (**Try …**) when the workspace is idle
+- Optional sidebar sign-in (JWT) for per-account history; usable as **guest** when the backend URL is set
 - Tech stack detection
 - Excel export functionality
-- Clean VS Code-native UI design
+- Clean VS Code–native styling (theme tokens via `webview/debuggo.css`)
 
 ## Demo / Preview
 
@@ -125,9 +128,10 @@ Debuggo includes a **dual-layer code analysis engine** that combines **syntax ex
 ### What It Does
 
 - Combines structure + meaning into rich code context for AI
-- **Displays Code Insights in sidebar** with collapsible file groups, category shading, and pagination (8 files/page)
-- Shows function signatures and descriptions inline in the Code Insights panel
-- **Prioritizes mentioned files**: When you write "passwordModal.js" in your prompt, symbols from that file are boosted to the top with full semantic information
+- **Displays Code insights in the sidebar** with collapsible per-file rows (`<details>`), a CSS grid drawer animation for expand/collapse, category blocks (`Functions`, `Variables`, …) with shaded borders, and **compact pagination**: a small number of files per page (`INSIGHTS_PAGE_SIZE` in `webview/debuggo.js`, default **4**) with **Prev** / **Page N of M** / **Next** — not a long grid of page numbers
+- The insights panel height is capped (`insights-panel`) so **Generated code** stays easier to reach on tall symbol lists
+- Shows function signatures (and descriptions when JSDoc exists) inline in Code insights
+- **Prioritizes mentioned files**: When you write `passwordModal.js` in your prompt, symbols from that file are boosted toward the front of the AI context with full semantic information
 
 ### How It Works (Enhanced Flow with Semantic Layer)
 
@@ -303,11 +307,12 @@ function validatePassword(password, minLength) { }
 | `validatePassword(password: string, number): boolean` | `validatePassword(...): boolean - Validates strength` |
 | AI generates generic tests | AI generates: weak passwords, edge cases, special chars |
 
-### Code Insights Panel
+### Code insights panel (UI)
 
-- Toggle "Code Insights" → see all functions + signatures + descriptions
-- Click function → auto-add to prompt
-- Browse 8 files/page with pagination
+- Toggle **Code insights** to expand or collapse the section
+- Each file is a row; open it to see symbols (functions are buttons that **prefill the prompt**)
+- Use **Prev** / **Next** and the **Page N of M** label to move through files (page size is `INSIGHTS_PAGE_SIZE` in `webview/debuggo.js`)
+- **Refresh** re-fetches symbol data from the extension (resets to page 1)
 
 ---
 
@@ -353,24 +358,28 @@ For local VS Code debugging, `.vscode/launch.json` can load environment variable
 
 The **extension sidebar** is separate from any **browser** demo under `website/`.
 
-1. Configure `intellitest.backendUrl` to a running IntelliTest server.
-2. Open the IntelliTest sidebar: you see a **Log in / Sign up** gate only.
-3. After a successful login, the JWT is stored in VS Code SecretStorage (`intellitest.authJwt`); restarting VS Code keeps you signed in until you **Log out**, the token expires (`JWT_EXPIRES_IN` on the server, often 7 days), or the server rejects the token (401).
+1. Configure **`debuggo.backendUrl`** (VS Code Settings) to a running IntelliTest server — without it, generation stays disabled until the URL is set.
+2. Open the Debuggo sidebar: the **full workspace UI** is visible (**guest-first**). Use header **Sign in** to open the optional **Account** card (Log in / Sign up). Close with **×**, **Escape**, or automatically after a successful login.
+3. Signing in is **optional**: guests can generate when the backend is reachable. After login, JWT is stored in VS Code SecretStorage (`intellitest.authJwt`); restart keeps you signed in until **Log out**, token expiry (`JWT_EXPIRES_IN`, often 7 days), or server rejection (401).
 
-The header shows your display name when signed in and includes **Log out**.
+The header shows **Sign in** when logged out and **Log out** when authenticated; signed-in accounts may show a display label (`userLabel`).
 
 ## How to test (auth + generation)
 
 1. **MongoDB**: Run a local MongoDB instance (or Atlas URI) matching `Server/.env`.
 2. **Server**: From the repo root, `cd Server && npm install && npm start` (or your process manager).
 3. **Extension host**: From the repo root, `npm install && npm run compile`, then press **F5** in VS Code with the extension project open (**Run Extension**).
-4. In the Extension Development Host: set **Settings → IntelliTest → Backend URL** to your server (`http://localhost:<port>` with no trailing slash).
-5. **Sign up**: use the sidebar **Sign up** tab with a name, email, and password at least eight characters long. You should immediately see the full generator UI (`init`, code insights, etc.).
-6. **Persistence**: Reload the window (**Developer: Reload Window**) or restart the host; reopen the sidebar—you should skip the gate and remain signed in.
-7. **Log out**: Click **Log out**; gate returns; main generator block is hidden.
+4. In the Extension Development Host: set **Settings → Debuggo → Backend URL** (`debuggo.backendUrl`) to your server (`http://localhost:<port>` with no trailing slash).
+5. **Sign up** (optional): Open **Sign in** → **Sign up**, then name (if shown), email, and password ≥ 8 characters. On success the Account panel closes and header shows **Log out** (`init`, code insights, etc. behave as authenticated).
+6. **Persistence**: Reload (**Developer: Reload Window**) or restart the host; with a valid JWT you should reopen the sidebar still signed in (header **Log out**).
+7. **Log out**: Click **Log out**; JWT is cleared and **Sign in** returns — main generator UI stays available for guests when backend URL is set.
 8. **Generation + history**: After sign-in, run **Generate** once; reopen the sidebar or trigger **Retry** reload—`sessionLoaded` is posted (history is available for a future sidebar UI); server stores messages under your user plus the workspace project UUID.
-9. **Backend down**: Stop the server, reload the sidebar: you should see the gate with **Retry connection** after bootstrap failure (stored token is kept unless `/auth/me` returns 401).
-10. **Expired token**: Set `JWT_EXPIRES_IN` short (for example `10s`), restart server, wait, then trigger **Generate** or reload; extension should warn and send you back to the gate.
+9. **Backend down**: Stop the server, reload the sidebar: bootstrap error messaging and optional **Retry** on the Account flow / banners as implemented (stored token handling depends on `/auth/me` response).
+10. **Expired token**: Set `JWT_EXPIRES_IN` short (for example `10s`), restart server, wait, then trigger **Generate** or reload; extension should recover guest or re-auth UX per current webview messaging (banner / gate form), without assuming a full-screen-only gate.
+
+11. **Code insights paging**: Use **Next** repeatedly on a large repo; paging should advance by one page at a time (delegated clicks — regressions caused by duplicate handlers would skip pages).
+
+12. **Account panel**: **Escape** closes the Account card while it is open.
 
 ## Development Notes
 

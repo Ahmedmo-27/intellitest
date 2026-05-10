@@ -418,6 +418,17 @@ cancelAuthPanelBtn?.addEventListener('click', () => {
 	closeAuthPanel();
 });
 
+document.addEventListener('keydown', e => {
+	if (e.key !== 'Escape' || e.defaultPrevented) {
+		return;
+	}
+	if (!authGate || authGate.hidden || !authGate.classList.contains('auth-gate--open')) {
+		return;
+	}
+	e.preventDefault();
+	closeAuthPanel();
+});
+
 modeLoginBtn?.addEventListener('click', () => {
 	clearAuthInlineError();
 	setSignupMode(false);
@@ -563,12 +574,12 @@ function renderInsightsPagination(totalFiles) {
 	const nextDisabled = cur >= totalPages;
 
 	return `
-		<div class="insights-pagination" role="navigation" aria-label="Code insights file pages">
-			<button type="button" class="insights-pager-btn" data-insights-pager="prev" aria-label="Previous page"${
+		<div class="insights-pagination" role="navigation" aria-label="Code insights pages">
+			<button type="button" class="insights-pager-btn" data-insights-pager="prev" aria-label="Previous file page"${
 				prevDisabled ? ' disabled' : ''
 			}>‹ Prev</button>
-			<span class="insights-pager-meta" aria-current="page">Page ${cur} <span class="insights-pager-of">of</span> ${totalPages}</span>
-			<button type="button" class="insights-pager-btn" data-insights-pager="next" aria-label="Next page"${
+			<span class="insights-pager-meta"><span aria-current="page">Page ${cur}</span> <span class="insights-pager-of">of</span> ${totalPages}</span>
+			<button type="button" class="insights-pager-btn" data-insights-pager="next" aria-label="Next file page"${
 				nextDisabled ? ' disabled' : ''
 			}>Next ›</button>
 		</div>`;
@@ -667,32 +678,6 @@ function renderCodeInsights(files) {
 	insightsList.innerHTML = `${sections}${renderInsightsPagination(list.length)}`;
 	insightsEmpty.style.display = 'none';
 	insightsList.style.display = 'block';
-
-	for (const node of insightsList.querySelectorAll('.insight-fn')) {
-		node.addEventListener('click', e => {
-			e.preventDefault();
-			e.stopPropagation();
-			prefillPrompt(node.dataset.function || 'function');
-		});
-	}
-
-	const pagerEl = insightsList.querySelector('.insights-pagination');
-	pagerEl?.addEventListener('click', e => {
-		const btn = e.target.closest('[data-insights-pager]');
-		if (!(btn instanceof HTMLButtonElement) || btn.disabled) {
-			return;
-		}
-		e.preventDefault();
-		e.stopPropagation();
-		const totalPages = Math.max(1, Math.ceil(cachedInsightFiles.length / INSIGHTS_PAGE_SIZE));
-		const dir = btn.dataset.insightsPager;
-		if (dir === 'prev') {
-			currentInsightsPage = Math.max(1, currentInsightsPage - 1);
-		} else if (dir === 'next') {
-			currentInsightsPage = Math.min(totalPages, currentInsightsPage + 1);
-		}
-		renderCodeInsights(cachedInsightFiles);
-	});
 }
 
 function renderTestCases(testCases) {
@@ -909,6 +894,31 @@ refreshInsightsButton?.addEventListener('click', e => {
 	e.stopPropagation();
 	currentInsightsPage = 1;
 	vscode.postMessage({ command: 'refreshCodeInsights' });
+});
+
+/* Delegated once — insightsList is recreated via innerHTML; per-row/per-pager handlers would stack */
+insightsList?.addEventListener('click', e => {
+	const fnBtn = e.target.closest('.insight-fn');
+	if (fnBtn instanceof HTMLButtonElement) {
+		e.preventDefault();
+		e.stopPropagation();
+		prefillPrompt(fnBtn.dataset.function || 'function');
+		return;
+	}
+	const btn = e.target.closest('[data-insights-pager]');
+	if (!(btn instanceof HTMLButtonElement) || btn.disabled) {
+		return;
+	}
+	e.preventDefault();
+	e.stopPropagation();
+	const totalPages = Math.max(1, Math.ceil(cachedInsightFiles.length / INSIGHTS_PAGE_SIZE));
+	const dir = btn.dataset.insightsPager;
+	if (dir === 'prev') {
+		currentInsightsPage = Math.max(1, currentInsightsPage - 1);
+	} else if (dir === 'next') {
+		currentInsightsPage = Math.min(totalPages, currentInsightsPage + 1);
+	}
+	renderCodeInsights(cachedInsightFiles);
 });
 
 insightsVisibilityButton?.addEventListener('click', () => {
