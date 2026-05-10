@@ -4,6 +4,39 @@ AI-powered VS Code extension for generating structured software test cases.
 
 Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
 
+---
+
+## Important: local API server
+
+To use **your own** Groq key, MongoDB, and quotas, run the **`Server`** on your machine—not the hosted Render deployment.
+
+1. **Install dependencies (two places)**  
+   - From the **repository root**: `npm install` (extension build / VS Code tooling).  
+   - From **`Server/`**: `cd Server` then `npm install` (Express API).
+
+2. **Configure the server**  
+   Copy `Server/.env.example` → **`Server/.env`**, then set **`MONGODB_URI`**, **`JWT_SECRET`**, **`LLM_PROVIDER=api`**, and **`API_KEY`** or **`GROQ_API_KEY`** (and **`API_MODEL`** if you change the model).
+
+3. **Start the API**  
+   ```bash
+   cd Server
+   npm run dev
+   ```  
+   (`dev` runs the server with **Node `--watch`**; use **`npm start`** if you prefer a single run without watch.) Default HTTP port is **`3000`** (see **`PORT`** in `Server/.env`).
+
+4. **Point the extension at localhost (`package.json` only — no VS Code Settings UI)**  
+   Open **`package.json`** at the repo root → **`contributes`** → **`configuration`** → **`properties`** → **`debuggo.backendUrl`**, and set:
+   ```json
+   "default": "http://localhost:3000"
+   ```
+   Use the same host/port as your running Server (no trailing slash; match **`PORT`** in `Server/.env` if it is not `3000`).
+
+   **Do not `git commit` or `git push` this change.** Revert `default` back to the hosted Render URL (`https://intellitest-hyvw.onrender.com`) before you push, so GitHub CI / deployments and everyone else cloning the repo do not inherit a localhost-only backend and fail. Same rule for any fork you open PRs against: **local edit only**.
+
+   Leaving `default` as the **hosted** URL means the extension talks to **Render** (`Server/.env` on your laptop is unused for those requests—you share that deployment’s Groq org and quotas).
+
+---
+
 ## Features
 
 - AI-powered test case generation (and optional **Generate code** → **Generated code** panel in the sidebar)
@@ -358,7 +391,7 @@ For local VS Code debugging, `.vscode/launch.json` can load environment variable
 
 The **extension sidebar** is separate from any **browser** demo under `website/`.
 
-1. Configure **`debuggo.backendUrl`** (VS Code Settings) to a running IntelliTest server — without it, generation stays disabled until the URL is set.
+1. The extension must reach a running API URL. The shipped default lives in **`package.json`** (`debuggo.backendUrl` under `contributes.configuration.properties`). For a **local** Server, temporarily set that **`default`** to `http://localhost:3000` as in **Important: local API server** (and **do not push** that edit). Without a reachable URL, generation stays disabled.
 2. Open the Debuggo sidebar: the **full workspace UI** is visible (**guest-first**). Use header **Sign in** to open the optional **Account** card (Log in / Sign up). Close with **×**, **Escape**, or automatically after a successful login.
 3. Signing in is **optional**: guests can generate when the backend is reachable. After login, JWT is stored in VS Code SecretStorage (`intellitest.authJwt`); restart keeps you signed in until **Log out**, token expiry (`JWT_EXPIRES_IN`, often 7 days), or server rejection (401).
 
@@ -369,7 +402,7 @@ The header shows **Sign in** when logged out and **Log out** when authenticated;
 1. **MongoDB**: Run a local MongoDB instance (or Atlas URI) matching `Server/.env`.
 2. **Server**: From the repo root, `cd Server && npm install && npm start` (or your process manager).
 3. **Extension host**: From the repo root, `npm install && npm run compile`, then press **F5** in VS Code with the extension project open (**Run Extension**).
-4. In the Extension Development Host: set **Settings → Debuggo → Backend URL** (`debuggo.backendUrl`) to your server (`http://localhost:<port>` with no trailing slash).
+4. In the Extension Development Host, the backend URL comes from **`package.json`**’s **`debuggo.backendUrl` `default`** (see step 4 under **Important: local API server**). For localhost, edit that field locally—**do not commit/push**.
 5. **Sign up** (optional): Open **Sign in** → **Sign up**, then name (if shown), email, and password ≥ 8 characters. On success the Account panel closes and header shows **Log out** (`init`, code insights, etc. behave as authenticated).
 6. **Persistence**: Reload (**Developer: Reload Window**) or restart the host; with a valid JWT you should reopen the sidebar still signed in (header **Log out**).
 7. **Log out**: Click **Log out**; JWT is cleared and **Sign in** returns — main generator UI stays available for guests when backend URL is set.
