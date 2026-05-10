@@ -163,6 +163,7 @@ function applyAuthChrome(authenticated) {
 }
 
 const syncProjectButton = document.getElementById('syncProjectButton');
+const syncWorkspaceLabel = 'Sync Workspace';
 
 function applyWorkspaceGating() {
 	const ok = workspaceReady();
@@ -201,7 +202,7 @@ function resetMainWorkspaceUi() {
 	}
 	if (syncProjectButton) {
 		syncProjectButton.disabled = !workspaceReady();
-		syncProjectButton.textContent = 'Re-sync';
+		syncProjectButton.textContent = syncWorkspaceLabel;
 		syncProjectButton.style.opacity = workspaceReady() ? '' : '0.55';
 	}
 	if (userLabel) {
@@ -510,7 +511,7 @@ syncProjectButton?.addEventListener('click', () => {
 
 	setTimeout(() => {
 		applyWorkspaceGating();
-		syncProjectButton.textContent = 'Re-sync';
+		syncProjectButton.textContent = syncWorkspaceLabel;
 	}, 2000);
 });
 

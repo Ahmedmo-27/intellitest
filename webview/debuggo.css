@@ -4,18 +4,18 @@
 
 body {
 	margin: 0;
-	padding: 10px;
+	padding: 8px;
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
 	background-color: var(--vscode-editor-background);
 	color: var(--vscode-foreground);
 	font-size: 13px;
-	line-height: 1.5;
+	line-height: 1.45;
 }
 
 .container {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: 6px;
 	max-width: 100%;
 }
 
@@ -50,7 +50,7 @@ h1 {
 
 .auth-banner {
 	font-size: 12px;
-	padding: 10px;
+	padding: 8px;
 	border-radius: 4px;
 	border: 1px solid var(--vscode-inputValidation-infoBorder);
 	background-color: var(--vscode-inputValidation-infoBackground);
@@ -67,7 +67,7 @@ h1 {
 
 .auth-error-banner {
 	font-size: 12px;
-	padding: 10px;
+	padding: 8px;
 	border-radius: 4px;
 	border: 1px solid var(--vscode-inputValidation-errorBorder);
 	background-color: var(--vscode-inputValidation-errorBackground);
@@ -150,7 +150,7 @@ h1 {
 .app-workspace {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: 6px;
 	max-width: 100%;
 }
 
@@ -158,7 +158,7 @@ h1 {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	gap: 10px;
+	gap: 8px;
 	flex-wrap: nowrap;
 	width: 100%;
 	min-width: 0;
@@ -170,7 +170,7 @@ h1 {
 .header-brand {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
 	flex: 1 1 auto;
 	min-width: 0;
 	max-width: 100%;
@@ -181,7 +181,7 @@ h1 {
 	flex: 1 1 auto;
 	min-width: 0;
 	margin: 0;
-	font-size: 15px;
+	font-size: 13px;
 	line-height: 1.25;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -190,8 +190,8 @@ h1 {
 
 .brand-mascot {
 	display: block;
-	width: 40px;
-	height: 40px;
+	width: 28px;
+	height: 28px;
 	flex-shrink: 0;
 	object-fit: contain;
 }
@@ -246,14 +246,15 @@ h1 {
 }
 
 .description {
-	margin: 0 0 12px 0;
-	font-size: 12px;
+	margin: 0 0 6px;
+	font-size: 11px;
+	line-height: 1.4;
 	color: var(--vscode-descriptionForeground);
 }
 
 .info-card {
-	padding: 10px;
-	margin-bottom: 12px;
+	padding: 7px 8px;
+	margin-bottom: 6px;
 	border-left: 3px solid var(--vscode-button-background);
 	border-radius: 2px;
 	background-color: var(--vscode-editor-background);
@@ -265,7 +266,7 @@ h1 {
 	text-transform: uppercase;
 	letter-spacing: 0.5px;
 	color: var(--vscode-button-background);
-	margin-bottom: 4px;
+	margin-bottom: 2px;
 }
 
 .info-value {
@@ -275,8 +276,8 @@ h1 {
 }
 
 #frameworkCard {
-	padding: 7px 9px;
-	margin-bottom: 6px;
+	padding: 6px 8px;
+	margin-bottom: 4px;
 }
 
 #frameworkCard .info-label {
@@ -290,7 +291,7 @@ h1 {
 .form-group {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 3px;
 }
 
 label {
@@ -301,7 +302,7 @@ label {
 
 .input-field {
 	width: 100%;
-	padding: 6px 8px;
+	padding: 5px 8px;
 	border: 1px solid var(--vscode-input-border);
 	border-radius: 2px;
 	background-color: var(--vscode-input-background);
@@ -321,43 +322,66 @@ label {
 }
 
 .btn-primary {
-	padding: 6px 12px;
+	padding: 5px 10px;
 	border: none;
 	border-radius: 2px;
 	background-color: var(--vscode-button-background);
 	color: var(--vscode-button-foreground);
 	font-family: inherit;
-	font-size: 13px;
+	font-size: 12px;
 	font-weight: 500;
 	cursor: pointer;
 	transition: background-color 0.2s;
-	min-height: 28px;
+	min-height: 24px;
 }
 
 .actions {
-	display: flex;
-	gap: 8px;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 5px;
+	margin-top: 2px;
 }
 
 .actions .btn-primary {
-	flex: 1;
+	grid-column: 1 / -1;
+	justify-self: stretch;
+	padding: 3px 10px;
+	font-size: 11px;
+	font-weight: 600;
+	min-height: 22px;
+	line-height: 1.3;
 }
 
-
-.btn-export:disabled {
-	background-color: var(--vscode-editor-background);
-	color: var(--vscode-descriptionForeground);
-	border: 1px solid var(--vscode-widget-border);
+.actions button.btn-secondary.actions-outline {
+	background-color: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
+	color: var(--vscode-foreground);
+	border: 1px solid var(--vscode-button-background);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	min-height: 22px;
+	padding: 3px 8px;
+	line-height: 1.3;
 	opacity: 1;
-	cursor: not-allowed;
+	transition:
+		background-color 0.15s ease,
+		border-color 0.15s ease,
+		color 0.15s ease;
 }
 
-.btn-generate-code:disabled {
-	background-color: var(--vscode-editor-background);
-	color: var(--vscode-descriptionForeground);
-	border: 1px solid var(--vscode-widget-border);
+.actions button.btn-secondary.actions-outline:hover:not(:disabled) {
+	background-color: var(--vscode-list-hoverBackground);
+	border-color: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+	color: var(--vscode-foreground);
+}
+
+.actions button.btn-secondary.actions-outline:disabled {
 	opacity: 1;
 	cursor: not-allowed;
+	color: var(--vscode-descriptionForeground);
+	border-color: var(--vscode-widget-border);
+	background-color: var(--vscode-input-background, var(--vscode-editor-background));
+	font-weight: 500;
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -372,18 +396,18 @@ label {
 .output-section {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-	margin-top: 4px;
+	gap: 4px;
+	margin-top: 2px;
 }
 
 .output-label {
-	font-size: 12px;
-	font-weight: 500;
+	font-size: 11px;
+	font-weight: 600;
 	color: var(--vscode-foreground);
 }
 
 .insights-shell {
-	padding: 8px;
+	padding: 6px;
 	border: 1px solid var(--vscode-widget-border);
 	border-radius: 4px;
 	background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
@@ -612,7 +636,7 @@ label {
 .preview-table th,
 .preview-table td {
 	border-bottom: 1px solid var(--vscode-widget-border);
-	padding: 9px 10px;
+	padding: 6px 8px;
 	text-align: left;
 	vertical-align: top;
 	white-space: pre-wrap;
@@ -641,7 +665,7 @@ label {
 }
 
 .script-section {
-	margin-top: 8px;
+	margin-top: 5px;
 }
 
 .script-meta {
@@ -658,16 +682,16 @@ label {
 }
 
 .btn-secondary {
-	padding: 5px 10px;
+	padding: 4px 9px;
 	border: 1px solid var(--vscode-button-secondaryForeground, var(--vscode-widget-border));
 	border-radius: 2px;
 	background-color: var(--vscode-button-secondaryBackground, var(--vscode-editor-background));
 	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
 	font-family: inherit;
-	font-size: 12px;
+	font-size: 11px;
 	font-weight: 500;
 	cursor: pointer;
-	min-height: 26px;
+	min-height: 24px;
 }
 
 .btn-secondary:hover {

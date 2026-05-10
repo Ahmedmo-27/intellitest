@@ -17,14 +17,14 @@
 
             <div class="header-bar">
                 <div class="header-brand">
-                    <img src="{{brandMascotUri}}" width="40" height="40" class="brand-mascot" alt="" decoding="async" />
+                    <img src="{{brandMascotUri}}" width="28" height="28" class="brand-mascot" alt="" decoding="async" />
                     <h1>Debuggo</h1>
                 </div>
                 <div class="header-actions">
                     <span id="userLabel" class="user-label" title="Signed-in account"></span>
                     <button type="button" id="signInAccountButton" class="btn-secondary btn-compact">Sign in or create account</button>
                     <button id="logoutButton" class="btn-secondary btn-compact" type="button" hidden>Log out</button>
-                    <button id="syncProjectButton" class="btn-secondary" type="button" title="Rebuild the Global Intelligence Graph (Feature/Dependency Map) for this project. Use this if you have added new files or folders since your last generation.">Re-sync</button>
+                    <button id="syncProjectButton" class="btn-secondary" type="button" title="Rebuild the project dependency map from your workspace files. Use after adding, removing, or renaming files or folders.">Sync Workspace</button>
                 </div>
             </div>
 
@@ -73,8 +73,8 @@
 
             <div class="actions">
                 <button id="generateButton" class="btn-primary">Generate Test Cases</button>
-                <button id="exportButton" class="btn-primary btn-export" disabled>Export to Excel</button>
-                <button id="generateCodeButton" class="btn-primary btn-generate-code" disabled>Generate Test Code</button>
+                <button id="exportButton" class="btn-secondary actions-outline" disabled>Export to Excel</button>
+                <button id="generateCodeButton" class="btn-secondary actions-outline" disabled>Generate Test Code</button>
             </div>
 
             <div class="info-card" id="frameworkCard">
