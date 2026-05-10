@@ -4,6 +4,32 @@ AI-powered VS Code extension for generating structured software test cases.
 
 Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
 
+---
+
+## Important: local API server
+
+To use **your own** Groq key, MongoDB, and quotas, run the **`Server`** on your machine—not the hosted Render deployment.
+
+1. **Install dependencies (two places)**  
+   - From the **repository root**: `npm install` (extension build / VS Code tooling).  
+   - From **`Server/`**: `cd Server` then `npm install` (Express API).
+
+2. **Configure the server**  
+   Copy `Server/.env.example` → **`Server/.env`**, then set **`MONGODB_URI`**, **`JWT_SECRET`**, **`LLM_PROVIDER=api`**, and **`API_KEY`** or **`GROQ_API_KEY`** (and **`API_MODEL`** if you change the model).
+
+3. **Start the API**  
+   ```bash
+   cd Server
+   npm run dev
+   ```  
+   (`dev` runs the server with **Node `--watch`**; use **`npm start`** if you prefer a single run without watch.) Default HTTP port is **`3000`** (see **`PORT`** in `Server/.env`).
+
+4. **Point the extension at localhost (critical)**  
+   In VS Code / Cursor settings, set **`debuggo.backendUrl`** to **`http://localhost:3000`** (no trailing slash; match your **`PORT`** if not 3000).  
+   If this is left as the **online Render** base URL (`https://…onrender.com`), generation uses **that** server’s environment and Groq org—not your local `Server/.env`—so rate limits and keys are unrelated to what you configured locally.
+
+---
+
 ## Features
 
 - AI-powered test case generation (and optional **Generate code** → **Generated code** panel in the sidebar)
