@@ -90,32 +90,46 @@ export async function generate(req, res) {
     if (userId) {
       extractedFeatures = await projectService.loadFeatures(userId, projectId);
     }
+    if (extractedFeatures.length === 0) {
+      extractedFeatures = extractFeatures(projectMap, null);
+    }
+
+    // 🔥 FIX: We MUST build the relationships here! Otherwise the E2E related features are thrown away.
+    const relationships = buildFeatureRelationships(extractedFeatures, null);
     const allowedFeatures = extractedFeatures.map(f => f.name || f.normalizedName);
 
     // ── Step 2.5: Guardrail Decision Layer (Feature Intelligence) ─────────────
-    // Note: relationships are not strictly needed here for validation, but mapPromptToFeatures uses it.
-    // We can pass empty relationships since analyzeIntent already handled the flow targeting.
-    const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, []);
+    const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, relationships);
 
     let decision = "allowed";
     if (userPrompt.trim().length > 0) {
-      decision = matchResult.matchType;
+      decision = matchResult.decision;
+    }
+
+    const matchedFeatureNames = matchResult.features.map(f => f.name);
+    const isFlowTest = /flow|e2e|integration|process|end to end/i.test(userPrompt);
+
+    let allowedToFocus = [...matchedFeatureNames];
+    if (isFlowTest) {
+      const relatedFeatureNames = matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name));
+      allowedToFocus = [...new Set([...allowedToFocus, ...relatedFeatureNames])];
     }
 
     let coverageMap = {};
-    if (userId && matchResult.matchedFeatures.length > 0) {
-      const coverages = await projectService.loadFeatureCoverage(userId, projectId, matchResult.matchedFeatures);
+    if (userId && matchedFeatureNames.length > 0) {
+      const coverages = await projectService.loadFeatureCoverage(userId, projectId, matchedFeatureNames);
       for (const c of coverages) {
         coverageMap[c.feature] = c;
       }
+
     }
 
     logger.info("feature_mapping", {
       event: "feature_mapping",
       prompt: userPrompt,
       extractedFeatures: allowedFeatures,
-      matchedFeatures: matchResult.matchedFeatures,
-      relatedFeatures: matchResult.relatedFeatures,
+      matchedFeatures: matchedFeatureNames,
+      relatedFeatures: matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name)),
       coverage: coverageMap,
       confidence: matchResult.confidence,
       decision: decision === "none" ? "fallback" : decision
@@ -125,8 +139,7 @@ export async function generate(req, res) {
     if (decision === "none" && userPrompt.trim().length > 0) {
       return res.json({
         warning: "Feature not found",
-        suggestions: matchResult.relatedFeatures.length > 0 ? matchResult.relatedFeatures.slice(0, 2) : ["product", "collection"],
-        closestFlows: matchResult.closestFlows,
+        suggestions: matchResult.suggestions || ["product", "collection"],
         action: "fallback",
         features: []
       });
@@ -135,7 +148,7 @@ export async function generate(req, res) {
     // ── Step 3: Build prompt ──────────────────────────────────────────────────
     let restrictInstruction = "";
     if (decision === "partial") {
-      restrictInstruction = `Ignore non-existent features. Focus only on available matched features: ${matchResult.matchedFeatures.join(", ")}.`;
+      restrictInstruction = `Ignore non-existent features. Focus only on available matched features: ${allowedToFocus.join(", ")}.`;
     }
 
     // 🔥 FIX: Create a strict map from the incoming payload so we don't bloat the LLM
@@ -223,17 +236,18 @@ export async function generate(req, res) {
     // ── Step 8: Upsert coverage & returned features ───────────────────────────
     const returnedFeatures = [];
     if (userId && testCases.length > 0) {
-      const coverageResults = matchResult.matchedFeatures.map(f => calculateCoverage(f, testCases));
+      const coverageResults = matchedFeatureNames.map(f => calculateCoverage(f, testCases));
       await projectService.upsertFeatureCoverage(userId, projectId, coverageResults);
 
       for (const cov of coverageResults) {
         const featureObj = extractedFeatures.find(f => f.normalizedName === cov.feature);
+        const matchFeat = matchResult.features.find(f => f.name === cov.feature);
         returnedFeatures.push({
           name: cov.feature,
           files: featureObj ? featureObj.files : [],
-          relatedFeatures: relationships.filter(r => r.feature === cov.feature).map(r => r.relatedFeature),
+          relatedFeatures: matchFeat ? matchFeat.relatedFeatures.map(r => r.name) : [],
           coverage: cov.estimatedCoverage,
-          confidence: matchResult.confidence,
+          confidence: matchFeat ? matchFeat.confidence : 0,
           missingTestAreas: cov.missingAreas
         });
       }
@@ -256,7 +270,7 @@ export async function generate(req, res) {
         retryCount,
         contextVersion: context?.contextVersion ?? 1,
         fallback: aiStatus === "fallback",
-        matchConfidence: matchResult.confidence
+        matchConfidence: matchResult.features.length > 0 ? matchResult.features[0].confidence : 0
       },
     };
 
@@ -337,15 +351,15 @@ export async function analyzeIntent(req, res) {
           // We prioritize files that are likely the "core" of the dependency (services, controllers, 
           // or files that directly contain the feature name).
           const allFiles = Array.from(feat.files);
-          
-          const coreFiles = allFiles.filter(f => 
-            f.toLowerCase().includes(rf) || 
+
+          const coreFiles = allFiles.filter(f =>
+            f.toLowerCase().includes(rf) ||
             /service|controller|api|route|index/i.test(f)
           );
-          
+
           // Fallback to other files if we didn't find clear "core" files
           const finalFiles = coreFiles.length > 0 ? coreFiles : allFiles;
-          
+
           // Cap at 10 to protect the parser, but now we know we have the most important ones.
           finalFiles.slice(0, 10).forEach(f => relevantFilesSet.add(f));
         }

@@ -1,0 +1,55 @@
+<main class="page-container">
+    <h1>FAQ</h1>
+
+    <div class="faq-list">
+        <div class="faq-item" [class.is-open]="openIndex === 0">
+            <button class="faq-toggle" [attr.aria-expanded]="openIndex === 0" aria-controls="faq-0" (click)="toggle(0)">
+                <span>How does the extension understand my project's specific architecture?</span>
+                <span class="faq-arrow" aria-hidden="true">▶</span>
+            </button>
+            <div id="faq-0" class="faq-answer" [hidden]="openIndex !== 0">
+                <p>IntelliTest scans your project structure, dependencies, and code patterns to build the context it needs before generating tests. That wider view helps it match your repository's conventions and produce output that fits the code you already have.</p>
+            </div>
+        </div>
+
+        <div class="faq-item" [class.is-open]="openIndex === 1">
+            <button class="faq-toggle" [attr.aria-expanded]="openIndex === 1" aria-controls="faq-1" (click)="toggle(1)">
+                <span>What types of tests can the LLM generate?</span>
+                <span class="faq-arrow" aria-hidden="true">▶</span>
+            </button>
+            <div id="faq-1" class="faq-answer" [hidden]="openIndex !== 1">
+                <p>You can generate unit, integration, regression, and end-to-end tests. IntelliTest uses the code context and your prompt to shape the output around the kind of coverage you need.</p>
+            </div>
+        </div>
+
+        <div class="faq-item" [class.is-open]="openIndex === 2">
+            <button class="faq-toggle" [attr.aria-expanded]="openIndex === 2" aria-controls="faq-2" (click)="toggle(2)">
+                <span>Can I export or share the generated test cases?</span>
+                <span class="faq-arrow" aria-hidden="true">▶</span>
+            </button>
+            <div id="faq-2" class="faq-answer" [hidden]="openIndex !== 2">
+                <p>Yes. You can export generated test cases and scripts so they are easier to review, share, and track outside the editor.</p>
+            </div>
+        </div>
+
+        <div class="faq-item" [class.is-open]="openIndex === 3">
+            <button class="faq-toggle" [attr.aria-expanded]="openIndex === 3" aria-controls="faq-3" (click)="toggle(3)">
+                <span>How does the "Agent" approach differ from standard Copilot chat?</span>
+                <span class="faq-arrow" aria-hidden="true">▶</span>
+            </button>
+            <div id="faq-3" class="faq-answer" [hidden]="openIndex !== 3">
+                <p>Copilot chat is interactive and conversational. IntelliTest is built to follow a structured workflow that gathers context, shapes the request, and returns test code in a more guided way.</p>
+            </div>
+        </div>
+
+        <div class="faq-item" [class.is-open]="openIndex === 4">
+            <button class="faq-toggle" [attr.aria-expanded]="openIndex === 4" aria-controls="faq-4" (click)="toggle(4)">
+                <span>Does the extension work with any programming language or framework?</span>
+                <span class="faq-arrow" aria-hidden="true">▶</span>
+            </button>
+            <div id="faq-4" class="faq-answer" [hidden]="openIndex !== 4">
+                <p>Yes. IntelliTest adapts to the language and testing framework it detects in your project, so the generated output matches the syntax and structure your codebase already uses.</p>
+            </div>
+        </div>
+    </div>
+</main>
