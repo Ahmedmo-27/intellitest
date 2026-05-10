@@ -10,7 +10,7 @@
  */
 
 import "dotenv/config";
-import { server as serverConfig } from "./config.js";
+import { server as serverConfig, ai as aiConfig } from "./config.js";
 import { createApp }    from "./app.js";
 import mongoose from "mongoose";
 import { connectDB, disconnectDB } from "./db/connection.js";
@@ -33,6 +33,19 @@ async function main() {
 
   // ── 2. Bootstrap Express ──────────────────────────────────────────────────
   const app = createApp();
+
+  let apiHost = null;
+  try {
+    apiHost = new URL(aiConfig.apiBase).host;
+  } catch {
+    apiHost = "(invalid API_BASE_URL)";
+  }
+  logger.info("llm_http_route", {
+    endpointHost: apiHost,
+    testCasesModel: aiConfig.apiModel,
+    codeGenModel: aiConfig.codeGenApiModel,
+    note: "Test cases and executable code both use API_BASE_URL + API_KEY.",
+  });
 
   // ── 3. Start HTTP server ──────────────────────────────────────────────────
   const httpServer = app.listen(serverConfig.port, () => {

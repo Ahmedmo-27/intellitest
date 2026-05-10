@@ -19,11 +19,15 @@ function stripMarkdownFences(text) {
  * @type {import("express").RequestHandler}
  */
 export async function generateTestCode(req, res) {
-  const { framework, generateResponsePayload } = req.generateTestCodeBody;
+  const { framework, generateResponsePayload, localConfigHints } = req.generateTestCodeBody;
 
   try {
-    const prompt = promptService.generateExecutableTestCodePrompt(framework, generateResponsePayload);
-    const raw = await complete(prompt);
+    const prompt = promptService.generateExecutableTestCodePrompt(
+      framework,
+      generateResponsePayload,
+      localConfigHints
+    );
+    const raw = await complete(prompt, { purpose: "codeGen" });
     const code = stripMarkdownFences(raw);
 
     if (!code) {

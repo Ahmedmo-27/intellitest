@@ -25,6 +25,14 @@ import type { WebviewMessage } from '../types/messages.js';
 import { getWebviewHtml } from '../webview/template.js';
 import { getOrCreateProjectId } from '../utils/projectId.js';
 import { listProjectRelativePaths } from '../services/codebaseContext.js';
+import {
+	buildGeneratedTestRunInstructionsMarkdown,
+	buildGeneratedTestsTsConfigJson,
+	GENERATED_TESTS_RUN_GUIDE_FILENAME,
+	GENERATED_TESTS_TSCONFIG_FILENAME,
+	resolveGeneratedTestRunRecipe
+} from '../services/generatedTestRunInstructions.js';
+import { collectLocalConfigHints } from '../services/localConfigHints.js';
 
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
@@ -577,6 +585,11 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		await this.hydrateWorkspaceSignalsFromFolder();
+
+		const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		const localConfigHints = await collectLocalConfigHints(workspaceRootPath);
+
 		const generateResponsePayload =
 			!usedExcelFallback && this.latestGenerated.generateApiPayload
 				? this.latestGenerated.generateApiPayload
@@ -602,7 +615,8 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 						backendUrl,
 						{
 							framework: this.recommendedTestingFramework,
-							generateResponsePayload
+							generateResponsePayload,
+							...(localConfigHints ? { localConfigHints } : {})
 						},
 						this.authToken
 					)
@@ -619,25 +633,35 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const filename = this.resolveTestCodeFilename();
-		const language = this.resolveLanguage();
-
-		void this.view?.webview.postMessage({
-			command: 'testCode',
-			testScript: {
-				framework: this.recommendedTestingFramework,
-				language,
-				filename,
-				code
-			}
-		});
+		const language = this.resolveLanguage(filename);
+		const runInstructionsMarkdown = buildGeneratedTestRunInstructionsMarkdown(
+			this.detectedStack,
+			this.recommendedTestingFramework,
+			filename
+		);
 
 		try {
-			await this.saveAndOpenTestCode(filename, code);
+			const saved = await this.saveGeneratedTestArtifacts(filename, code, runInstructionsMarkdown);
+			if (!saved) {
+				void this.view?.webview.postMessage({ command: 'testCode', testScript: null });
+				return;
+			}
+			void this.view?.webview.postMessage({
+				command: 'testCode',
+				testScript: {
+					framework: this.recommendedTestingFramework,
+					language,
+					filename,
+					code
+				}
+			});
+
 			void vscode.window.showInformationMessage(
 				`IntelliTest: Test code generated successfully → generated-tests/${filename}`
 			);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
+			void this.view?.webview.postMessage({ command: 'testCode', testScript: null });
 			notifyError(`File save failed — ${msg}`);
 		}
 	}
@@ -645,31 +669,57 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	/** Picks a filename based on the detected testing framework. */
 	private resolveTestCodeFilename(): string {
 		const fw = this.recommendedTestingFramework.toLowerCase();
+		const stack = this.detectedStack.toLowerCase();
 		if (fw.includes('pytest') || fw.includes('python')) {
 			return 'generatedTestCode.py';
 		}
 		if (fw.includes('junit') || fw.includes('java')) {
 			return 'GeneratedTestCode.java';
 		}
+		const reactHint =
+			stack.includes('react') ||
+			fw.includes('react') ||
+			fw.includes('testing-library') ||
+			fw.includes('@testing-library');
+		if (reactHint) {
+			const tsHint = stack.includes('typescript') || stack.includes('tsx');
+			return tsHint ? 'generatedTestCode.spec.tsx' : 'generatedTestCode.spec.jsx';
+		}
 		return 'generatedTestCode.spec.js';
 	}
 
 	/** Returns a language label for the script section metadata. */
-	private resolveLanguage(): string {
+	private resolveLanguage(filename: string): string {
+		if (filename.endsWith('.tsx')) {
+			return 'typescript';
+		}
+		if (filename.endsWith('.jsx')) {
+			return 'javascript';
+		}
 		const fw = this.recommendedTestingFramework.toLowerCase();
-		if (fw.includes('pytest') || fw.includes('python')) { return 'python'; }
-		if (fw.includes('junit') || fw.includes('java')) { return 'java'; }
+		if (fw.includes('pytest') || fw.includes('python')) {
+			return 'python';
+		}
+		if (fw.includes('junit') || fw.includes('java')) {
+			return 'java';
+		}
 		return 'javascript';
 	}
 
-	/** Saves generated code to generated-tests/<filename> and opens it in the editor. */
-	private async saveAndOpenTestCode(filename: string, code: string): Promise<void> {
+	/**
+	 * Writes generated-tests/<filename>, HOW_TO_RUN_GENERATED_TESTS.md, opens the test file.
+	 */
+	private async saveGeneratedTestArtifacts(
+		filename: string,
+		code: string,
+		runInstructionsMarkdown: string
+	): Promise<{ testUri: vscode.Uri; instructionsUri: vscode.Uri } | undefined> {
 		const folder = vscode.workspace.workspaceFolders?.[0];
 		if (!folder) {
 			void vscode.window.showWarningMessage(
 				'IntelliTest: No workspace folder open — test code was not saved to disk.'
 			);
-			return;
+			return undefined;
 		}
 
 		const outputDir = vscode.Uri.joinPath(folder.uri, 'generated-tests');
@@ -680,11 +730,43 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			await vscode.workspace.fs.createDirectory(outputDir);
 		}
 
-		const target = vscode.Uri.joinPath(outputDir, filename);
-		await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(code));
+		const testUri = vscode.Uri.joinPath(outputDir, filename);
+		await vscode.workspace.fs.writeFile(testUri, new TextEncoder().encode(code));
 
-		const doc = await vscode.workspace.openTextDocument(target);
+		if (/\.tsx?$/i.test(filename)) {
+			const rootTsconfig = vscode.Uri.joinPath(folder.uri, 'tsconfig.json');
+			let extendsParentTsconfig = false;
+			try {
+				await vscode.workspace.fs.stat(rootTsconfig);
+				extendsParentTsconfig = true;
+			} catch {
+				extendsParentTsconfig = false;
+			}
+			const recipe = resolveGeneratedTestRunRecipe(
+				this.detectedStack,
+				this.recommendedTestingFramework,
+				filename
+			);
+			const tsconfigJson = buildGeneratedTestsTsConfigJson({
+				extendsParentTsconfig,
+				testFilename: filename,
+				code,
+				recipe
+			});
+			const tsconfigUri = vscode.Uri.joinPath(outputDir, GENERATED_TESTS_TSCONFIG_FILENAME);
+			await vscode.workspace.fs.writeFile(tsconfigUri, new TextEncoder().encode(tsconfigJson));
+		}
+
+		const instructionsUri = vscode.Uri.joinPath(outputDir, GENERATED_TESTS_RUN_GUIDE_FILENAME);
+		await vscode.workspace.fs.writeFile(
+			instructionsUri,
+			new TextEncoder().encode(runInstructionsMarkdown)
+		);
+
+		const doc = await vscode.workspace.openTextDocument(testUri);
 		await vscode.window.showTextDocument(doc, { preview: false });
+
+		return { testUri, instructionsUri };
 	}
 
 	// ── Clipboard / file ops ──────────────────────────────────────────────────────

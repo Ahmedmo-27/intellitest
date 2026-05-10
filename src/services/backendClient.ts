@@ -290,7 +290,12 @@ export async function generateViaBackendV2(
  */
 export async function generateTestCodeViaBackend(
 	baseUrl: string,
-	body: { framework: string; generateResponsePayload: Record<string, unknown> },
+	body: {
+		framework: string;
+		generateResponsePayload: Record<string, unknown>;
+		/** Optional workspace `.env.example` snippets — server uses them to align process.env names. */
+		localConfigHints?: string;
+	},
 	authToken?: string
 ): Promise<string> {
 	const root = baseUrl.replace(/\/$/, '');
