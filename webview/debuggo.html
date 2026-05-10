@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https:; style-src {{cspSource}}; script-src {{cspSource}};">
     <title>Debuggo</title>
+    <link rel="stylesheet" href="{{highlightCssUri}}">
     <link rel="stylesheet" href="{{styleUri}}">
 </head>
 <body>
@@ -82,6 +83,15 @@
                 <button id="generateCodeButton" class="btn-secondary actions-outline" disabled>Generate Test Code</button>
             </div>
 
+            <p id="generationStatus" class="generation-status" role="status" aria-live="polite" hidden></p>
+
+            <div id="promptChips" class="prompt-chips" role="group" aria-label="Example prompts" hidden>
+                <span class="prompt-chips-lead">Try</span>
+                <button type="button" class="prompt-chip" data-prompt="Generate test cases covering login edge cases: invalid credentials, locked accounts, SSO timeout, password reset flows.">Login edge cases</button>
+                <button type="button" class="prompt-chip" data-prompt="Generate test cases for checkout validation: cart limits, expired coupons, address validation errors, payment failure handling.">Checkout validation</button>
+                <button type="button" class="prompt-chip" data-prompt="Generate test cases for JWT authentication: malformed tokens, expired tokens, revoked refresh tokens, role-based access.">JWT authentication</button>
+            </div>
+
             <div class="output-section panel-shell testcases-shell">
                 <div class="testcases-header-bar section-header-sticky">
                     <button id="testcasesVisibilityButton" class="insights-visibility" type="button" aria-expanded="true">
@@ -124,12 +134,13 @@
                 <div id="scriptInnerPanel" class="script-inner-panel">
                     <div id="scriptMeta" class="script-meta" hidden></div>
                     <div id="scriptPlaceholder" class="script-placeholder"></div>
-                    <pre class="script-pre" id="scriptPre" aria-label="Generated test code" hidden></pre>
+                    <pre class="script-pre" id="scriptPreOuter" aria-label="Generated test code" hidden><code id="scriptPre" class="hljs"></code></pre>
                 </div>
             </div>
         </div>
     </main>
 
+    <script src="{{highlightScriptUri}}"></script>
     <script src="{{scriptUri}}"></script>
 </body>
 </html>

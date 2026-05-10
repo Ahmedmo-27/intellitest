@@ -24,6 +24,8 @@ const input = document.getElementById('promptInput');
 const button = document.getElementById('generateButton');
 const exportButton = document.getElementById('exportButton');
 const generateCodeButton = document.getElementById('generateCodeButton');
+const generationStatus = document.getElementById('generationStatus');
+const promptChipsEl = document.getElementById('promptChips');
 const stackDetectCard = document.getElementById('stackDetectCard');
 const stackPillsEl = document.getElementById('stackPills');
 const frameworkEl = document.getElementById('framework');
@@ -41,6 +43,7 @@ const refreshInsightsButton = document.getElementById('refreshInsightsButton');
 const scriptInnerPanel = document.getElementById('scriptInnerPanel');
 const scriptPlaceholder = document.getElementById('scriptPlaceholder');
 const scriptMeta = document.getElementById('scriptMeta');
+const scriptPreOuter = document.getElementById('scriptPreOuter');
 const scriptPre = document.getElementById('scriptPre');
 const scriptVisibilityButton = document.getElementById('scriptVisibilityButton');
 const scriptVisibilityArrow = document.getElementById('scriptVisibilityArrow');
@@ -51,6 +54,7 @@ const scriptUiEnabled = Boolean(
 	scriptInnerPanel &&
 		scriptPlaceholder &&
 		scriptPre &&
+		scriptPreOuter &&
 		copyScriptButton &&
 		saveScriptButton,
 );
@@ -58,9 +62,11 @@ const scriptUiEnabled = Boolean(
 const defaultButtonText = button?.textContent ?? 'Generate Test Cases';
 const defaultExportButtonText = exportButton?.textContent ?? 'Export to Excel';
 const defaultGenerateCodeText = generateCodeButton ? generateCodeButton.textContent : 'Generate Test Code';
+const defaultCopyScriptLabel = copyScriptButton?.textContent?.trim() || 'Copy code';
 
 let signupMode = false;
 let hasGeneratedRows = false;
+let isGeneratingCases = false;
 let isExporting = false;
 let isGeneratingCode = false;
 let isInsightsPanelOpen = true;
@@ -78,8 +84,73 @@ let cachedInsightFiles = [];
 /** True until extension reports debuggo.backendUrl is set */
 let needsBackendUrlFlag = true;
 
+let copyFeedbackTimer = 0;
+
 function workspaceReady() {
 	return !needsBackendUrlFlag;
+}
+
+/**
+ * @param {string | undefined | null} text
+ * @param {{ busy?: boolean }} [opts]
+ */
+function setGenerationStatus(text, opts) {
+	const busy = opts?.busy ?? false;
+	if (!generationStatus) {
+		return;
+	}
+	if (!text || !text.trim()) {
+		generationStatus.hidden = true;
+		generationStatus.textContent = '';
+		generationStatus.classList.remove('generation-status-busy');
+		return;
+	}
+	generationStatus.hidden = false;
+	generationStatus.textContent = text.trim();
+	generationStatus.classList.toggle('generation-status-busy', Boolean(busy));
+}
+
+function updatePromptChipsVisibility() {
+	if (!promptChipsEl) {
+		return;
+	}
+	const show =
+		workspaceReady() && !hasGeneratedRows && !isGeneratingCases && !isGeneratingCode;
+	promptChipsEl.hidden = !show;
+}
+
+/**
+ * @param {string} rawCode
+ * @param {string} language
+ */
+function applyScriptHighlight(rawCode, language) {
+	if (!scriptPre) {
+		return;
+	}
+	const lang =
+		language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript';
+	if (typeof hljs !== 'undefined' && rawCode.trim()) {
+		try {
+			const { value } = hljs.highlight(rawCode, { language: lang, ignoreIllegals: true });
+			scriptPre.innerHTML = value;
+			scriptPre.className = `hljs language-${lang}`;
+			return;
+		} catch {
+			/* unsupported grammar — try auto-detect */
+		}
+		try {
+			const r = hljs.highlightAuto(rawCode);
+			if (r?.value != null) {
+				scriptPre.innerHTML = r.value;
+				scriptPre.className = 'hljs';
+				return;
+			}
+		} catch {
+			/* plain text fallback */
+		}
+	}
+	scriptPre.textContent = rawCode;
+	scriptPre.className = 'hljs';
 }
 
 function escapeHtml(value) {
@@ -242,10 +313,11 @@ function applyWorkspaceGating() {
 		syncProjectButton.disabled = !ok;
 		syncProjectButton.style.opacity = ok ? '' : '0.55';
 	}
-	if (button && button.textContent !== 'Generating...') {
+	if (button && !isGeneratingCases) {
 		button.disabled = !ok;
 		button.style.opacity = ok ? '' : '0.55';
 	}
+	updatePromptChipsVisibility();
 }
 
 function resetMainWorkspaceUi() {
@@ -279,6 +351,7 @@ function resetMainWorkspaceUi() {
 	}
 	isGeneratingCode = false;
 	updateGenerateCodeButton();
+	updatePromptChipsVisibility();
 }
 
 signInAccountButton?.addEventListener('click', () => {
@@ -380,9 +453,11 @@ function setLoading(isLoading) {
 	if (!button) {
 		return;
 	}
+	isGeneratingCases = Boolean(isLoading);
 	button.disabled = isLoading || !workspaceReady();
-	button.textContent = isLoading ? 'Generating...' : defaultButtonText;
+	button.textContent = isLoading ? 'Generating…' : defaultButtonText;
 	button.style.opacity = !workspaceReady() ? '0.55' : '';
+	updatePromptChipsVisibility();
 }
 
 function updateExportButton() {
@@ -398,7 +473,8 @@ function updateGenerateCodeButton() {
 		return;
 	}
 	generateCodeButton.disabled = !hasGeneratedRows || isGeneratingCode;
-	generateCodeButton.textContent = isGeneratingCode ? 'Generating Code...' : defaultGenerateCodeText;
+	generateCodeButton.textContent = isGeneratingCode ? 'Generating Code…' : defaultGenerateCodeText;
+	updatePromptChipsVisibility();
 }
 
 function prefillPrompt(functionName) {
@@ -539,6 +615,7 @@ function renderTestCases(testCases) {
 		hasGeneratedRows = false;
 		updateExportButton();
 		updateGenerateCodeButton();
+		updatePromptChipsVisibility();
 		return;
 	}
 
@@ -586,6 +663,7 @@ function renderTestCases(testCases) {
 	hasGeneratedRows = true;
 	updateExportButton();
 	updateGenerateCodeButton();
+	updatePromptChipsVisibility();
 }
 
 /** @param {unknown} testScript */
@@ -600,9 +678,14 @@ function renderTestScript(testScript) {
 			scriptMeta.textContent = '';
 			scriptMeta.hidden = true;
 		}
-		scriptPre.textContent = '';
-		scriptPre.removeAttribute('title');
-		scriptPre.hidden = true;
+		if (scriptPre) {
+			scriptPre.textContent = '';
+			scriptPre.className = 'hljs';
+		}
+		if (scriptPreOuter) {
+			scriptPreOuter.removeAttribute('title');
+			scriptPreOuter.hidden = true;
+		}
 		scriptPlaceholder.textContent = SCRIPT_PLACEHOLDER_EMPTY;
 		scriptPlaceholder.hidden = false;
 		if (copyScriptButton) {
@@ -635,10 +718,15 @@ function renderTestScript(testScript) {
 		scriptMeta.hidden = false;
 	}
 	scriptPlaceholder.hidden = true;
-	scriptPre.hidden = false;
-	scriptPre.textContent = code;
+	if (scriptPreOuter) {
+		scriptPreOuter.hidden = false;
+	}
 	const tooltipBits = [fw, lang].filter(Boolean);
-	scriptPre.title = tooltipBits.length > 0 ? `${tooltipBits.join(' · ')} · ${relPath}` : relPath;
+	const tip = tooltipBits.length > 0 ? `${tooltipBits.join(' · ')} · ${relPath}` : relPath;
+	if (scriptPreOuter) {
+		scriptPreOuter.title = tip;
+	}
+	applyScriptHighlight(code, lang);
 	currentScript = { filename, code };
 	if (copyScriptButton) {
 		copyScriptButton.disabled = false;
@@ -652,6 +740,7 @@ function submitPrompt() {
 	if (!workspaceReady()) {
 		return;
 	}
+	setGenerationStatus('Starting…', { busy: true });
 	setLoading(true);
 	vscode.postMessage({
 		command: 'generate',
@@ -684,6 +773,7 @@ generateCodeButton?.addEventListener('click', () => {
 		return;
 	}
 	isGeneratingCode = true;
+	setGenerationStatus('Preparing test code…', { busy: true });
 	updateGenerateCodeButton();
 	vscode.postMessage({ command: 'generateTestCode' });
 });
@@ -728,6 +818,20 @@ updateInsightsPanelVisibility();
 updateTestCasesPanelVisibility();
 updateScriptInnerPanelVisibility();
 renderTestScript(null);
+updatePromptChipsVisibility();
+
+promptChipsEl?.addEventListener('click', e => {
+	const t = /** @type {HTMLElement} */ (e.target);
+	const chip = t.closest?.('.prompt-chip');
+	if (!chip || !input) {
+		return;
+	}
+	const p = chip.dataset.prompt;
+	if (p) {
+		input.value = p;
+		input.focus();
+	}
+});
 
 input?.addEventListener('keydown', event => {
 	if (event.key === 'Enter') {
@@ -795,11 +899,59 @@ window.addEventListener('message', event => {
 		return;
 	}
 
+	if (message.command === 'generationProgress') {
+		if (message.phase && message.phase !== 'cases') {
+			return;
+		}
+		setGenerationStatus(message.text ?? '', { busy: true });
+		return;
+	}
+
+	if (message.command === 'generationEnded') {
+		setGenerationStatus('');
+		setLoading(false);
+		return;
+	}
+
+	if (message.command === 'testCodeProgress') {
+		setGenerationStatus(message.text ?? '', { busy: true });
+		return;
+	}
+
+	if (message.command === 'testCodeEnded') {
+		isGeneratingCode = false;
+		updateGenerateCodeButton();
+		if (!isGeneratingCases) {
+			setGenerationStatus('');
+		}
+		return;
+	}
+
+	if (message.command === 'copyFeedback') {
+		if (!copyScriptButton) {
+			return;
+		}
+		window.clearTimeout(copyFeedbackTimer);
+		if (message.success) {
+			copyScriptButton.textContent = 'Copied!';
+			copyScriptButton.classList.add('btn-copy-done');
+			copyFeedbackTimer = window.setTimeout(() => {
+				copyScriptButton.textContent = defaultCopyScriptLabel;
+				copyScriptButton.classList.remove('btn-copy-done');
+			}, 2000);
+		} else {
+			copyScriptButton.textContent = defaultCopyScriptLabel;
+			copyScriptButton.classList.remove('btn-copy-done');
+		}
+		return;
+	}
+
 	if (message.command === 'result') {
 		const testCases = Array.isArray(message.testCases) ? message.testCases : [];
 		setFrameworkLabel(message.recommendedTestingFramework || 'Not specified');
 		renderTestCases(testCases);
 		renderTestScript(message.testScript);
+		setGenerationStatus('');
 		setLoading(false);
 		return;
 	}
@@ -814,6 +966,7 @@ window.addEventListener('message', event => {
 		isGeneratingCode = false;
 		updateGenerateCodeButton();
 		renderTestScript(message.testScript);
+		setGenerationStatus('');
 		return;
 	}
 
