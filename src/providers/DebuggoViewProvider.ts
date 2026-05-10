@@ -774,7 +774,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			command: 'result',
 			testCases: generated.testCases,
 			recommendedTestingFramework: this.recommendedTestingFramework,
-			testScript: null
+			testScript: generated.testScript ?? null
 		});
 	}
 

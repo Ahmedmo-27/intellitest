@@ -24,22 +24,36 @@ const input = document.getElementById('promptInput');
 const button = document.getElementById('generateButton');
 const exportButton = document.getElementById('exportButton');
 const generateCodeButton = document.getElementById('generateCodeButton');
-const techStackEl = document.getElementById('techStack');
-const stackTextEl = document.getElementById('stackText');
+const stackDetectCard = document.getElementById('stackDetectCard');
+const stackPillsEl = document.getElementById('stackPills');
 const frameworkEl = document.getElementById('framework');
-const previewBody = document.getElementById('previewBody');
+const frameworkPillEl = document.getElementById('frameworkPill');
+const previewCardsEl = document.getElementById('previewCards');
+const testcasesPanel = document.getElementById('testcasesPanel');
+const testcasesVisibilityButton = document.getElementById('testcasesVisibilityButton');
+const testcasesVisibilityArrow = document.getElementById('testcasesVisibilityArrow');
 const insightsPanel = document.getElementById('insightsPanel');
 const insightsEmpty = document.getElementById('insightsEmpty');
 const insightsList = document.getElementById('insightsList');
 const insightsVisibilityButton = document.getElementById('insightsVisibilityButton');
 const insightsVisibilityArrow = document.getElementById('insightsVisibilityArrow');
 const refreshInsightsButton = document.getElementById('refreshInsightsButton');
-const scriptSection = document.getElementById('scriptSection');
+const scriptInnerPanel = document.getElementById('scriptInnerPanel');
+const scriptPlaceholder = document.getElementById('scriptPlaceholder');
 const scriptMeta = document.getElementById('scriptMeta');
 const scriptPre = document.getElementById('scriptPre');
+const scriptVisibilityButton = document.getElementById('scriptVisibilityButton');
+const scriptVisibilityArrow = document.getElementById('scriptVisibilityArrow');
+const scriptToolbarActions = document.getElementById('scriptToolbarActions');
 const copyScriptButton = document.getElementById('copyScriptButton');
 const saveScriptButton = document.getElementById('saveScriptButton');
-const scriptUiEnabled = Boolean(scriptSection && copyScriptButton && saveScriptButton);
+const scriptUiEnabled = Boolean(
+	scriptInnerPanel &&
+		scriptPlaceholder &&
+		scriptPre &&
+		copyScriptButton &&
+		saveScriptButton,
+);
 
 const defaultButtonText = button?.textContent ?? 'Generate Test Cases';
 const defaultExportButtonText = exportButton?.textContent ?? 'Export to Excel';
@@ -50,6 +64,10 @@ let hasGeneratedRows = false;
 let isExporting = false;
 let isGeneratingCode = false;
 let isInsightsPanelOpen = true;
+let isTestCasesPanelOpen = true;
+let isScriptInnerPanelOpen = true;
+const SCRIPT_PLACEHOLDER_EMPTY =
+	'No generated code yet. Run Generate Test Cases, then use Generate Test Code to produce a script here.';
 const INSIGHTS_PAGE_SIZE = 8;
 let currentInsightsPage = 1;
 /** @type {{ filename: string, code: string } | null} */
@@ -69,6 +87,59 @@ function escapeHtml(value) {
 		.replaceAll('&', '&amp;')
 		.replaceAll('<', '&lt;')
 		.replaceAll('>', '&gt;');
+}
+
+function splitStackPieces(label) {
+	if (label == null) {
+		return [];
+	}
+	const s = String(label).trim();
+	if (!s) {
+		return [];
+	}
+	return s
+		.split(/\s*\+\s*/)
+		.map(part => part.trim())
+		.filter(Boolean);
+}
+
+function renderTechStackPills(stackLabel) {
+	if (!stackPillsEl || !stackDetectCard) {
+		return;
+	}
+	const parts = splitStackPieces(stackLabel);
+	if (parts.length === 0) {
+		stackPillsEl.innerHTML = '';
+		stackDetectCard.hidden = true;
+		return;
+	}
+	stackDetectCard.hidden = false;
+	stackPillsEl.innerHTML = parts
+		.map(p => `<span class="pill pill-compact">${escapeHtml(p)}</span>`)
+		.join('');
+}
+
+function truncateOneLine(text, maxLen = 156) {
+	const s = String(text ?? '')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (s.length <= maxLen) {
+		return s;
+	}
+	return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function setFrameworkLabel(text) {
+	if (frameworkEl) {
+		frameworkEl.textContent = text != null && String(text).trim() ? String(text).trim() : 'Not generated yet';
+	}
+	const t = frameworkEl?.textContent ?? '';
+	const muted =
+		!t.trim() ||
+		/^(not generated yet|not specified|not detected yet)$/i.test(t.trim());
+	if (frameworkPillEl) {
+		frameworkPillEl.classList.toggle('pill-muted', Boolean(muted));
+	}
 }
 
 function openAuthPanel() {
@@ -163,6 +234,7 @@ function applyAuthChrome(authenticated) {
 }
 
 const syncProjectButton = document.getElementById('syncProjectButton');
+const syncWorkspaceLabel = 'Sync Workspace';
 
 function applyWorkspaceGating() {
 	const ok = workspaceReady();
@@ -180,16 +252,14 @@ function resetMainWorkspaceUi() {
 	if (input) {
 		input.value = '';
 	}
-	if (stackTextEl) {
-		stackTextEl.textContent = '';
+	if (stackPillsEl) {
+		stackPillsEl.innerHTML = '';
 	}
-	if (techStackEl) {
-		techStackEl.style.display = 'none';
+	if (stackDetectCard) {
+		stackDetectCard.hidden = true;
 	}
-	if (frameworkEl) {
-		frameworkEl.textContent = 'Not generated yet';
-	}
-	renderTable([]);
+	setFrameworkLabel('Not generated yet');
+	renderTestCases([]);
 	renderTestScript(null);
 	cachedInsightFiles = [];
 	currentInsightsPage = 1;
@@ -201,7 +271,7 @@ function resetMainWorkspaceUi() {
 	}
 	if (syncProjectButton) {
 		syncProjectButton.disabled = !workspaceReady();
-		syncProjectButton.textContent = 'Re-sync';
+		syncProjectButton.textContent = syncWorkspaceLabel;
 		syncProjectButton.style.opacity = workspaceReady() ? '' : '0.55';
 	}
 	if (userLabel) {
@@ -275,6 +345,34 @@ function updateInsightsPanelVisibility() {
 	}
 	if (refreshInsightsButton) {
 		refreshInsightsButton.style.display = isInsightsPanelOpen ? 'inline-flex' : 'none';
+	}
+}
+
+function updateTestCasesPanelVisibility() {
+	if (!testcasesPanel) {
+		return;
+	}
+	testcasesPanel.style.display = isTestCasesPanelOpen ? 'block' : 'none';
+	testcasesVisibilityButton?.setAttribute('aria-expanded', isTestCasesPanelOpen ? 'true' : 'false');
+	if (testcasesVisibilityArrow) {
+		testcasesVisibilityArrow.textContent = isTestCasesPanelOpen ? '▾' : '▸';
+	}
+}
+
+function updateScriptInnerPanelVisibility() {
+	if (!scriptInnerPanel) {
+		return;
+	}
+	scriptInnerPanel.style.display = isScriptInnerPanelOpen ? 'block' : 'none';
+	scriptVisibilityButton?.setAttribute(
+		'aria-expanded',
+		isScriptInnerPanelOpen ? 'true' : 'false',
+	);
+	if (scriptVisibilityArrow) {
+		scriptVisibilityArrow.textContent = isScriptInnerPanelOpen ? '▾' : '▸';
+	}
+	if (scriptToolbarActions) {
+		scriptToolbarActions.style.display = isScriptInnerPanelOpen ? 'flex' : 'none';
 	}
 }
 
@@ -379,10 +477,23 @@ function renderCodeInsights(files) {
 			})
 			.join('');
 
+		const imports = (file.imports || [])
+			.map(imp => `<div class="insight-item">${escapeHtml(imp)}</div>`)
+			.join('');
+
 		const details = [
-			functions ? `<div class="insight-block insight-block-functions"><div class="insight-title">Functions</div>${functions}</div>` : '',
-			variables ? `<div class="insight-block insight-block-variables"><div class="insight-title">Variables</div>${variables}</div>` : '',
-			classes ? `<div class="insight-block insight-block-classes"><div class="insight-title">Classes</div>${classes}</div>` : ''
+			functions
+				? `<div class="insight-block insight-block-functions"><div class="insight-title"><span class="insight-glyph" aria-hidden="true">ƒ</span>Functions</div>${functions}</div>`
+				: '',
+			variables
+				? `<div class="insight-block insight-block-variables"><div class="insight-title"><span class="insight-glyph" aria-hidden="true">$</span>Variables</div>${variables}</div>`
+				: '',
+			classes
+				? `<div class="insight-block insight-block-classes"><div class="insight-title"><span class="insight-glyph" aria-hidden="true">◇</span>Classes</div>${classes}</div>`
+				: '',
+			imports
+				? `<div class="insight-block insight-block-imports"><div class="insight-title"><span class="insight-glyph" aria-hidden="true">⧉</span>Imports</div>${imports}</div>`
+				: ''
 		].join('');
 
 		return `
@@ -418,35 +529,60 @@ function renderCodeInsights(files) {
 	}
 }
 
-function renderTable(testCases) {
-	if (!previewBody || !exportButton) {
+function renderTestCases(testCases) {
+	if (!previewCardsEl || !exportButton) {
 		return;
 	}
 
 	if (!Array.isArray(testCases) || testCases.length === 0) {
-		previewBody.innerHTML = '<tr><td colspan="8" class="empty-row">No test cases generated yet.</td></tr>';
+		previewCardsEl.innerHTML = '<div class="tc-empty">No test cases generated yet.</div>';
 		hasGeneratedRows = false;
 		updateExportButton();
 		updateGenerateCodeButton();
 		return;
 	}
 
-	const rows = testCases.map(testCase => {
+	const cards = testCases.map(testCase => {
+		const id = escapeHtml(testCase.testCaseId);
+		const title = escapeHtml(testCase.title);
+		const priority = escapeHtml(testCase.priority);
+		const snippet = escapeHtml(truncateOneLine(testCase.description));
+		const pre = escapeHtml(testCase.preconditions ?? '');
+		const steps = escapeHtml(testCase.steps ?? '');
+		const expected = escapeHtml(testCase.expectedResult ?? '');
+
 		return `
-			<tr>
-				<td>${escapeHtml(testCase.testCaseId)}</td>
-				<td>${escapeHtml(testCase.title)}</td>
-				<td>${escapeHtml(testCase.description)}</td>
-				<td>${escapeHtml(testCase.preconditions)}</td>
-				<td>${escapeHtml(testCase.steps)}</td>
-				<td>${escapeHtml(testCase.expectedResult)}</td>
-				<td>${escapeHtml(testCase.priority)}</td>
-				<td>${escapeHtml(testCase.comments)}</td>
-			</tr>
+			<details class="tc-card">
+				<summary class="tc-summary">
+					<div class="tc-sum-body">
+						<div class="tc-line-top">
+							<span class="tc-id">${id}</span>
+							<span class="tc-title-text">${title}</span>
+							<span class="tc-priority">${priority}</span>
+						</div>
+						<div class="tc-snippet">${snippet}</div>
+					</div>
+					<span class="tc-chev" aria-hidden="true">▸</span>
+				</summary>
+				<div class="tc-expand">
+					<div class="tc-field">
+						<div class="tc-field-label">Preconditions</div>
+						<div class="tc-field-value">${pre}</div>
+					</div>
+					<div class="tc-field">
+						<div class="tc-field-label">Steps</div>
+						<div class="tc-field-value">${steps}</div>
+					</div>
+					<div class="tc-field">
+						<div class="tc-field-label">Expected result</div>
+						<div class="tc-field-value">${expected}</div>
+					</div>
+				</div>
+			</details>
 		`;
 	}).join('');
 
-	previewBody.innerHTML = rows;
+	previewCardsEl.innerHTML = cards;
 	hasGeneratedRows = true;
 	updateExportButton();
 	updateGenerateCodeButton();
@@ -454,37 +590,62 @@ function renderTable(testCases) {
 
 /** @param {unknown} testScript */
 function renderTestScript(testScript) {
-	if (!scriptUiEnabled || !scriptSection || !scriptPre) {
+	if (!scriptUiEnabled || !scriptPlaceholder || !scriptPre) {
 		return;
 	}
 
 	if (!testScript || typeof testScript !== 'object') {
-		scriptSection.style.display = 'none';
 		currentScript = null;
+		if (scriptMeta) {
+			scriptMeta.textContent = '';
+			scriptMeta.hidden = true;
+		}
+		scriptPre.textContent = '';
+		scriptPre.removeAttribute('title');
+		scriptPre.hidden = true;
+		scriptPlaceholder.textContent = SCRIPT_PLACEHOLDER_EMPTY;
+		scriptPlaceholder.hidden = false;
+		if (copyScriptButton) {
+			copyScriptButton.disabled = true;
+		}
+		if (saveScriptButton) {
+			saveScriptButton.disabled = true;
+		}
 		return;
 	}
-	const ts = /** @type {{ framework?: string, language?: string, filename?: string, code?: string }} */ (testScript);
+
+	const ts = /** @type {{ framework?: string, language?: string, filename?: string, code?: string }} */ (
+		testScript
+	);
 	const code = typeof ts.code === 'string' ? ts.code : '';
 	if (!code.trim()) {
-		scriptSection.style.display = 'none';
-		currentScript = null;
+		renderTestScript(null);
 		return;
 	}
-	const filename = typeof ts.filename === 'string' && ts.filename.trim() ? ts.filename.trim() : 'generated.test.js';
+
+	const filename =
+		typeof ts.filename === 'string' && ts.filename.trim()
+			? ts.filename.trim()
+			: 'generated.test.js';
 	const fw = ts.framework != null ? String(ts.framework) : '';
 	const lang = ts.language != null ? String(ts.language) : '';
+	const relPath = `tests/${filename}`;
 	if (scriptMeta) {
-		scriptMeta.textContent = [
-			fw && `Framework: ${fw}`,
-			lang && `Language: ${lang}`,
-			`File: tests/${filename}`
-		]
-			.filter(Boolean)
-			.join(' · ');
+		scriptMeta.textContent = relPath;
+		scriptMeta.hidden = false;
 	}
+	scriptPlaceholder.hidden = true;
+	scriptPre.hidden = false;
 	scriptPre.textContent = code;
+	const tooltipBits = [fw, lang].filter(Boolean);
+	scriptPre.title = tooltipBits.length > 0 ? `${tooltipBits.join(' · ')} · ${relPath}` : relPath;
 	currentScript = { filename, code };
-	scriptSection.style.display = '';
+	if (copyScriptButton) {
+		copyScriptButton.disabled = false;
+	}
+	if (saveScriptButton) {
+		saveScriptButton.disabled = false;
+	}
 }
 
 function submitPrompt() {
@@ -510,7 +671,7 @@ syncProjectButton?.addEventListener('click', () => {
 
 	setTimeout(() => {
 		applyWorkspaceGating();
-		syncProjectButton.textContent = 'Re-sync';
+		syncProjectButton.textContent = syncWorkspaceLabel;
 	}, 2000);
 });
 
@@ -553,7 +714,20 @@ insightsVisibilityButton?.addEventListener('click', () => {
 	updateInsightsPanelVisibility();
 });
 
+testcasesVisibilityButton?.addEventListener('click', () => {
+	isTestCasesPanelOpen = !isTestCasesPanelOpen;
+	updateTestCasesPanelVisibility();
+});
+
+scriptVisibilityButton?.addEventListener('click', () => {
+	isScriptInnerPanelOpen = !isScriptInnerPanelOpen;
+	updateScriptInnerPanelVisibility();
+});
+
 updateInsightsPanelVisibility();
+updateTestCasesPanelVisibility();
+updateScriptInnerPanelVisibility();
+renderTestScript(null);
 
 input?.addEventListener('keydown', event => {
 	if (event.key === 'Enter') {
@@ -612,24 +786,19 @@ window.addEventListener('message', event => {
 	}
 
 	if (message.command === 'init') {
-		if (stackTextEl && message.detectedStack != null) {
-			stackTextEl.textContent = message.detectedStack;
+		if (message.detectedStack != null) {
+			renderTechStackPills(message.detectedStack);
 		}
-		if (techStackEl) {
-			techStackEl.style.display = 'block';
-		}
-		if (frameworkEl && message.recommendedTestingFramework) {
-			frameworkEl.textContent = message.recommendedTestingFramework;
+		if (message.recommendedTestingFramework != null) {
+			setFrameworkLabel(message.recommendedTestingFramework);
 		}
 		return;
 	}
 
 	if (message.command === 'result') {
 		const testCases = Array.isArray(message.testCases) ? message.testCases : [];
-		if (frameworkEl) {
-			frameworkEl.textContent = message.recommendedTestingFramework || 'Not specified';
-		}
-		renderTable(testCases);
+		setFrameworkLabel(message.recommendedTestingFramework || 'Not specified');
+		renderTestCases(testCases);
 		renderTestScript(message.testScript);
 		setLoading(false);
 		return;
