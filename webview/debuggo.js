@@ -34,11 +34,14 @@ const previewCardsEl = document.getElementById('previewCards');
 const testcasesPanel = document.getElementById('testcasesPanel');
 const testcasesVisibilityButton = document.getElementById('testcasesVisibilityButton');
 const testcasesVisibilityArrow = document.getElementById('testcasesVisibilityArrow');
+const testcasesCollapse = document.getElementById('testcasesCollapse');
+const testcasesSectionHint = document.getElementById('testcasesSectionHint');
 const insightsPanel = document.getElementById('insightsPanel');
 const insightsEmpty = document.getElementById('insightsEmpty');
 const insightsList = document.getElementById('insightsList');
 const insightsVisibilityButton = document.getElementById('insightsVisibilityButton');
 const insightsVisibilityArrow = document.getElementById('insightsVisibilityArrow');
+const insightsCollapse = document.getElementById('insightsCollapse');
 const refreshInsightsButton = document.getElementById('refreshInsightsButton');
 const scriptInnerPanel = document.getElementById('scriptInnerPanel');
 const scriptPlaceholder = document.getElementById('scriptPlaceholder');
@@ -47,6 +50,7 @@ const scriptPreOuter = document.getElementById('scriptPreOuter');
 const scriptPre = document.getElementById('scriptPre');
 const scriptVisibilityButton = document.getElementById('scriptVisibilityButton');
 const scriptVisibilityArrow = document.getElementById('scriptVisibilityArrow');
+const scriptCollapse = document.getElementById('scriptCollapse');
 const scriptToolbarActions = document.getElementById('scriptToolbarActions');
 const copyScriptButton = document.getElementById('copyScriptButton');
 const saveScriptButton = document.getElementById('saveScriptButton');
@@ -74,7 +78,10 @@ let isTestCasesPanelOpen = true;
 let isScriptInnerPanelOpen = true;
 const SCRIPT_PLACEHOLDER_EMPTY =
 	'No generated code yet. Run Generate Test Cases, then use Generate Test Code to produce a script here.';
-const INSIGHTS_PAGE_SIZE = 8;
+const INSIGHTS_PAGE_SIZE = 6;
+const TC_EMPTY_HTML =
+	'<div class="tc-empty dg-muted-copy">Generate from a prompt above to see scenarios here.</div>';
+
 let currentInsightsPage = 1;
 /** @type {{ filename: string, code: string } | null} */
 let currentScript = null;
@@ -85,6 +92,7 @@ let cachedInsightFiles = [];
 let needsBackendUrlFlag = true;
 
 let copyFeedbackTimer = 0;
+let authPanelAnimTimer = 0;
 
 function workspaceReady() {
 	return !needsBackendUrlFlag;
@@ -200,6 +208,32 @@ function truncateOneLine(text, maxLen = 156) {
 	return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
 }
 
+function testCasesLoadingSkeletonHtml() {
+	const rows = ['', '', '', ''].map(
+		() =>
+			`<div class="dg-skel-block" aria-hidden="true"><div class="dg-skel-line dg-skel-line-w70"></div><div class="dg-skel-line dg-skel-line-w40"></div></div>`,
+	);
+	return `<div class="dg-skel-list">${rows.join('')}</div>`;
+}
+
+function injectTestCasesSkeleton() {
+	if (!previewCardsEl) {
+		return;
+	}
+	previewCardsEl.innerHTML = testCasesLoadingSkeletonHtml();
+}
+
+function updateTestcasesSectionHint(count) {
+	if (!testcasesSectionHint) {
+		return;
+	}
+	if (!count || count < 1) {
+		testcasesSectionHint.textContent = '';
+		return;
+	}
+	testcasesSectionHint.textContent = `${count} scenario${count === 1 ? '' : 's'}`;
+}
+
 function setFrameworkLabel(text) {
 	if (frameworkEl) {
 		frameworkEl.textContent = text != null && String(text).trim() ? String(text).trim() : 'Not generated yet';
@@ -214,16 +248,33 @@ function setFrameworkLabel(text) {
 }
 
 function openAuthPanel() {
-	if (authGate) {
-		authGate.hidden = false;
+	if (!authGate) {
+		return;
 	}
+	window.clearTimeout(authPanelAnimTimer);
+	authGate.hidden = false;
+	authGate.classList.remove('auth-gate--open');
+	void authGate.offsetHeight;
+	window.requestAnimationFrame(() => {
+		authGate.classList.add('auth-gate--open');
+	});
 }
 
-function closeAuthPanel() {
-	if (authGate) {
-		authGate.hidden = true;
-	}
+function closeAuthPanel(instant = false) {
 	clearAuthInlineError();
+	if (!authGate) {
+		return;
+	}
+	window.clearTimeout(authPanelAnimTimer);
+	if (instant) {
+		authGate.classList.remove('auth-gate--open');
+		authGate.hidden = true;
+		return;
+	}
+	authGate.classList.remove('auth-gate--open');
+	authPanelAnimTimer = window.setTimeout(() => {
+		authGate.hidden = true;
+	}, 290);
 }
 
 function setSignupMode(signup) {
@@ -300,12 +351,12 @@ function applyAuthChrome(authenticated) {
 		logoutButton.hidden = !authenticated;
 	}
 	if (authenticated) {
-		closeAuthPanel();
+		closeAuthPanel(true);
 	}
 }
 
 const syncProjectButton = document.getElementById('syncProjectButton');
-const syncWorkspaceLabel = 'Sync Workspace';
+const syncWorkspaceLabel = 'Sync';
 
 function applyWorkspaceGating() {
 	const ok = workspaceReady();
@@ -317,6 +368,7 @@ function applyWorkspaceGating() {
 		button.disabled = !ok;
 		button.style.opacity = ok ? '' : '0.55';
 	}
+	updateGenerateCodeButton();
 	updatePromptChipsVisibility();
 }
 
@@ -351,6 +403,7 @@ function resetMainWorkspaceUi() {
 	}
 	isGeneratingCode = false;
 	updateGenerateCodeButton();
+	updateTestcasesSectionHint(0);
 	updatePromptChipsVisibility();
 }
 
@@ -405,13 +458,12 @@ logoutButton?.addEventListener('click', () => {
 });
 
 setSignupMode(false);
-closeAuthPanel();
+closeAuthPanel(true);
 
 function updateInsightsPanelVisibility() {
-	if (!insightsPanel) {
-		return;
+	if (insightsCollapse) {
+		insightsCollapse.dataset.collapsed = isInsightsPanelOpen ? 'false' : 'true';
 	}
-	insightsPanel.style.display = isInsightsPanelOpen ? 'block' : 'none';
 	insightsVisibilityButton?.setAttribute('aria-expanded', isInsightsPanelOpen ? 'true' : 'false');
 	if (insightsVisibilityArrow) {
 		insightsVisibilityArrow.textContent = isInsightsPanelOpen ? '▾' : '▸';
@@ -422,10 +474,9 @@ function updateInsightsPanelVisibility() {
 }
 
 function updateTestCasesPanelVisibility() {
-	if (!testcasesPanel) {
-		return;
+	if (testcasesCollapse) {
+		testcasesCollapse.dataset.collapsed = isTestCasesPanelOpen ? 'false' : 'true';
 	}
-	testcasesPanel.style.display = isTestCasesPanelOpen ? 'block' : 'none';
 	testcasesVisibilityButton?.setAttribute('aria-expanded', isTestCasesPanelOpen ? 'true' : 'false');
 	if (testcasesVisibilityArrow) {
 		testcasesVisibilityArrow.textContent = isTestCasesPanelOpen ? '▾' : '▸';
@@ -433,10 +484,10 @@ function updateTestCasesPanelVisibility() {
 }
 
 function updateScriptInnerPanelVisibility() {
-	if (!scriptInnerPanel) {
-		return;
+	if (scriptCollapse) {
+		scriptCollapse.dataset.collapsed = isScriptInnerPanelOpen ? 'false' : 'true';
 	}
-	scriptInnerPanel.style.display = isScriptInnerPanelOpen ? 'block' : 'none';
+	scriptInnerPanel?.style.removeProperty('display');
 	scriptVisibilityButton?.setAttribute(
 		'aria-expanded',
 		isScriptInnerPanelOpen ? 'true' : 'false',
@@ -445,7 +496,7 @@ function updateScriptInnerPanelVisibility() {
 		scriptVisibilityArrow.textContent = isScriptInnerPanelOpen ? '▾' : '▸';
 	}
 	if (scriptToolbarActions) {
-		scriptToolbarActions.style.display = isScriptInnerPanelOpen ? 'flex' : 'none';
+		scriptToolbarActions.style.display = isScriptInnerPanelOpen ? 'inline-flex' : 'none';
 	}
 }
 
@@ -454,6 +505,10 @@ function setLoading(isLoading) {
 		return;
 	}
 	isGeneratingCases = Boolean(isLoading);
+	if (isLoading) {
+		injectTestCasesSkeleton();
+		updateTestcasesSectionHint(0);
+	}
 	button.disabled = isLoading || !workspaceReady();
 	button.textContent = isLoading ? 'Generating…' : defaultButtonText;
 	button.style.opacity = !workspaceReady() ? '0.55' : '';
@@ -472,8 +527,18 @@ function updateGenerateCodeButton() {
 	if (!generateCodeButton) {
 		return;
 	}
-	generateCodeButton.disabled = !hasGeneratedRows || isGeneratingCode;
-	generateCodeButton.textContent = isGeneratingCode ? 'Generating Code…' : defaultGenerateCodeText;
+	const allow = workspaceReady();
+	generateCodeButton.disabled =
+		!allow || !hasGeneratedRows || isGeneratingCode;
+	generateCodeButton.textContent = isGeneratingCode ? 'Generating…' : defaultGenerateCodeText;
+	generateCodeButton.title =
+		!allow ?
+			'Set debuggo.backendUrl in VS Code Settings to reach the backend.'
+		: !hasGeneratedRows ?
+				'Run “Generate Test Cases” first — this creates code from those scenarios.'
+		: isGeneratingCode ?
+				'Sending scenarios to the server.'
+		:	'Produce runnable test code from the scenarios listed below.';
 	updatePromptChipsVisibility();
 }
 
@@ -579,8 +644,12 @@ function renderCodeInsights(files) {
 					<span class="insight-file-base">${escapeHtml(fileName)}</span>
 					${folderLabel ? `<span class="insight-file-folder">${escapeHtml(folderLabel)}</span>` : ''}
 				</summary>
-				<div class="insight-group">
-					${details || '<div class="insight-muted">No symbols detected.</div>'}
+				<div class="insight-drawer">
+					<div class="insight-drawer-inner">
+						<div class="insight-group">
+							${details || '<div class="insight-muted">No symbols detected.</div>'}
+						</div>
+					</div>
 				</div>
 			</details>
 		`;
@@ -591,13 +660,17 @@ function renderCodeInsights(files) {
 	insightsList.style.display = 'block';
 
 	for (const node of insightsList.querySelectorAll('.insight-fn')) {
-		node.addEventListener('click', () => {
+		node.addEventListener('click', e => {
+			e.preventDefault();
+			e.stopPropagation();
 			prefillPrompt(node.dataset.function || 'function');
 		});
 	}
 
 	for (const pageBtn of insightsList.querySelectorAll('.insights-page-btn')) {
-		pageBtn.addEventListener('click', () => {
+		pageBtn.addEventListener('click', e => {
+			e.preventDefault();
+			e.stopPropagation();
 			const page = Number(pageBtn.dataset.page || '1');
 			currentInsightsPage = Number.isFinite(page) ? Math.max(1, page) : 1;
 			renderCodeInsights(cachedInsightFiles);
@@ -611,10 +684,11 @@ function renderTestCases(testCases) {
 	}
 
 	if (!Array.isArray(testCases) || testCases.length === 0) {
-		previewCardsEl.innerHTML = '<div class="tc-empty">No test cases generated yet.</div>';
+		previewCardsEl.innerHTML = TC_EMPTY_HTML;
 		hasGeneratedRows = false;
 		updateExportButton();
 		updateGenerateCodeButton();
+		updateTestcasesSectionHint(0);
 		updatePromptChipsVisibility();
 		return;
 	}
@@ -632,14 +706,16 @@ function renderTestCases(testCases) {
 			<details class="tc-card">
 				<summary class="tc-summary">
 					<div class="tc-sum-body">
-						<div class="tc-line-top">
-							<span class="tc-id">${id}</span>
-							<span class="tc-title-text">${title}</span>
-							<span class="tc-priority">${priority}</span>
+						<div class="tc-headline">
+							<div class="tc-line-top">
+								<span class="tc-id">${id}</span>
+								<span class="tc-title-text">${title}</span>
+								<span class="tc-priority">${priority}</span>
+							</div>
+							<div class="tc-snippet">${snippet}</div>
 						</div>
-						<div class="tc-snippet">${snippet}</div>
+						<span class="tc-chev" aria-hidden="true">▸</span>
 					</div>
-					<span class="tc-chev" aria-hidden="true">▸</span>
 				</summary>
 				<div class="tc-expand">
 					<div class="tc-field">
@@ -661,8 +737,17 @@ function renderTestCases(testCases) {
 
 	previewCardsEl.innerHTML = cards;
 	hasGeneratedRows = true;
+	queueMicrotask(() => {
+		let idx = 0;
+		for (const el of previewCardsEl.querySelectorAll('.tc-card')) {
+			el.style.setProperty('--tc-reveal-delay', `${Math.min(idx * 42, 380)}ms`);
+			el.classList.add('tc-reveal-item');
+			idx += 1;
+		}
+	});
 	updateExportButton();
 	updateGenerateCodeButton();
+	updateTestcasesSectionHint(testCases.length);
 	updatePromptChipsVisibility();
 }
 
@@ -686,6 +771,7 @@ function renderTestScript(testScript) {
 			scriptPreOuter.removeAttribute('title');
 			scriptPreOuter.hidden = true;
 		}
+		scriptInnerPanel?.classList.remove('panel-fade-mount');
 		scriptPlaceholder.textContent = SCRIPT_PLACEHOLDER_EMPTY;
 		scriptPlaceholder.hidden = false;
 		if (copyScriptButton) {
@@ -728,6 +814,13 @@ function renderTestScript(testScript) {
 	}
 	applyScriptHighlight(code, lang);
 	currentScript = { filename, code };
+	if (scriptInnerPanel) {
+		scriptInnerPanel.classList.remove('panel-fade-mount');
+		window.requestAnimationFrame(() => {
+			void scriptInnerPanel.offsetHeight;
+			scriptInnerPanel.classList.add('panel-fade-mount');
+		});
+	}
 	if (copyScriptButton) {
 		copyScriptButton.disabled = false;
 	}
@@ -769,7 +862,7 @@ exportButton?.addEventListener('click', () => {
 });
 
 generateCodeButton?.addEventListener('click', () => {
-	if (!hasGeneratedRows || isGeneratingCode) {
+	if (!workspaceReady() || !hasGeneratedRows || isGeneratingCode) {
 		return;
 	}
 	isGeneratingCode = true;
@@ -794,7 +887,9 @@ saveScriptButton?.addEventListener('click', () => {
 	}
 });
 
-refreshInsightsButton?.addEventListener('click', () => {
+refreshInsightsButton?.addEventListener('click', e => {
+	e.preventDefault();
+	e.stopPropagation();
 	currentInsightsPage = 1;
 	vscode.postMessage({ command: 'refreshCodeInsights' });
 });
@@ -818,6 +913,7 @@ updateInsightsPanelVisibility();
 updateTestCasesPanelVisibility();
 updateScriptInnerPanelVisibility();
 renderTestScript(null);
+updateTestcasesSectionHint(0);
 updatePromptChipsVisibility();
 
 promptChipsEl?.addEventListener('click', e => {
