@@ -78,7 +78,8 @@ let isTestCasesPanelOpen = true;
 let isScriptInnerPanelOpen = true;
 const SCRIPT_PLACEHOLDER_EMPTY =
 	'No generated code yet. Run Generate Test Cases, then use Generate Test Code to produce a script here.';
-const INSIGHTS_PAGE_SIZE = 6;
+/** Parsed files shown per pagination page — keep small so Code insights + Generated code fit typical sidebar heights */
+const INSIGHTS_PAGE_SIZE = 4;
 const TC_EMPTY_HTML =
 	'<div class="tc-empty dg-muted-copy">Generate from a prompt above to see scenarios here.</div>';
 
@@ -272,9 +273,10 @@ function closeAuthPanel(instant = false) {
 		return;
 	}
 	authGate.classList.remove('auth-gate--open');
+	/* Match longest auth card transition (transform 320ms); hiding early clips the exit animation */
 	authPanelAnimTimer = window.setTimeout(() => {
 		authGate.hidden = true;
-	}, 290);
+	}, 335);
 }
 
 function setSignupMode(signup) {
@@ -556,13 +558,20 @@ function renderInsightsPagination(totalFiles) {
 		return '';
 	}
 
-	const pages = Array.from({ length: totalPages }, (_, idx) => {
-		const page = idx + 1;
-		const activeClass = page === currentInsightsPage ? 'active' : '';
-		return `<button type="button" class="insights-page-btn ${activeClass}" data-page="${page}">${page}</button>`;
-	}).join('');
+	const cur = currentInsightsPage;
+	const prevDisabled = cur <= 1;
+	const nextDisabled = cur >= totalPages;
 
-	return `<div class="insights-pagination">${pages}</div>`;
+	return `
+		<div class="insights-pagination" role="navigation" aria-label="Code insights file pages">
+			<button type="button" class="insights-pager-btn" data-insights-pager="prev" aria-label="Previous page"${
+				prevDisabled ? ' disabled' : ''
+			}>‹ Prev</button>
+			<span class="insights-pager-meta" aria-current="page">Page ${cur} <span class="insights-pager-of">of</span> ${totalPages}</span>
+			<button type="button" class="insights-pager-btn" data-insights-pager="next" aria-label="Next page"${
+				nextDisabled ? ' disabled' : ''
+			}>Next ›</button>
+		</div>`;
 }
 
 function renderCodeInsights(files) {
@@ -667,15 +676,23 @@ function renderCodeInsights(files) {
 		});
 	}
 
-	for (const pageBtn of insightsList.querySelectorAll('.insights-page-btn')) {
-		pageBtn.addEventListener('click', e => {
-			e.preventDefault();
-			e.stopPropagation();
-			const page = Number(pageBtn.dataset.page || '1');
-			currentInsightsPage = Number.isFinite(page) ? Math.max(1, page) : 1;
-			renderCodeInsights(cachedInsightFiles);
-		});
-	}
+	const pagerEl = insightsList.querySelector('.insights-pagination');
+	pagerEl?.addEventListener('click', e => {
+		const btn = e.target.closest('[data-insights-pager]');
+		if (!(btn instanceof HTMLButtonElement) || btn.disabled) {
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		const totalPages = Math.max(1, Math.ceil(cachedInsightFiles.length / INSIGHTS_PAGE_SIZE));
+		const dir = btn.dataset.insightsPager;
+		if (dir === 'prev') {
+			currentInsightsPage = Math.max(1, currentInsightsPage - 1);
+		} else if (dir === 'next') {
+			currentInsightsPage = Math.min(totalPages, currentInsightsPage + 1);
+		}
+		renderCodeInsights(cachedInsightFiles);
+	});
 }
 
 function renderTestCases(testCases) {

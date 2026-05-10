@@ -866,7 +866,10 @@ label {
 	min-width: 0;
 }
 
-/* Shorter than other scroll panes — keeps Generated code nearer on typical sidebar heights */
+/*
+ * Shorter than other scroll panes — keeps Generated code nearer on typical sidebar heights.
+ * Keep in sync with .insight-drawer-inner max-height so expanded rows don’t double-stack huge nested scroll areas.
+ */
 .insights-panel.dg-scroll-pane {
 	max-height: min(200px, 34vh);
 }
@@ -885,7 +888,8 @@ label {
 /* File rows: keep neutral list look; animation is only the expand/collapse drawer below */
 .insight-file {
 	border-radius: 3px;
-	overflow: hidden;
+	/* Avoid clipping keyboard focus rings on nested .insight-fn; drawer clamps its own overflow */
+	overflow: visible;
 	min-width: 0;
 	transition: background-color 0.12s ease;
 }
@@ -930,6 +934,8 @@ label {
 .insight-drawer {
 	display: grid;
 	grid-template-rows: 0fr;
+	overflow: hidden;
+	border-radius: 0 0 3px 3px;
 	transition: grid-template-rows 0.28s cubic-bezier(0.32, 1, 0.32, 1);
 }
 
@@ -948,7 +954,8 @@ label {
 	opacity: 1;
 	overflow-y: auto;
 	overflow-x: hidden;
-	max-height: min(38vh, 220px);
+	/* Stay within .insights-panel.dg-scroll-pane (~200px) — avoids giant nested scroll */
+	max-height: min(30vh, 160px);
 	scrollbar-width: thin;
 }
 
@@ -1011,7 +1018,7 @@ label {
 }
 
 .insight-block:hover {
-	border-color: color-mix(in srgb, var(--vscode-widget-border) 60%, var(--vscode-focusBorder) 40%);
+	border-color: color-mix(in srgb, var(--vscode-widget-border) 78%, transparent);
 }
 
 .insight-block-functions {
@@ -1056,35 +1063,61 @@ label {
 
 .insights-pagination {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
 	margin-top: 4px;
-	padding-top: 4px;
+	padding-top: 6px;
 	border-top: 1px solid var(--debuggo-border-soft-2);
+	min-width: 0;
 }
 
-.insights-page-btn {
-	min-width: 24px;
-	height: 22px;
-	padding: 0 6px;
+.insights-pager-btn {
+	flex: 0 0 auto;
+	padding: 4px 8px;
+	height: auto;
+	min-height: 22px;
 	font-family: inherit;
-	font-size: 11px;
-	line-height: 1;
-	border: 1px solid var(--vscode-widget-border);
-	border-radius: 2px;
-	background-color: var(--vscode-editor-background);
+	font-size: 10.5px;
+	font-weight: 500;
+	line-height: 1.2;
+	border: 1px solid var(--debuggo-border-soft);
+	border-radius: 4px;
+	background-color: transparent;
 	color: var(--vscode-foreground);
 	cursor: pointer;
+	transition:
+		background-color 0.12s ease,
+		border-color 0.12s ease,
+		opacity 0.12s ease;
 }
 
-.insights-page-btn:hover {
-	background-color: var(--vscode-list-hoverBackground);
+.insights-pager-btn:hover:not(:disabled) {
+	background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+	border-color: var(--vscode-widget-border);
 }
 
-.insights-page-btn.active {
-	border-color: var(--vscode-focusBorder);
-	background-color: var(--vscode-list-activeSelectionBackground);
-	color: var(--vscode-list-activeSelectionForeground);
+.insights-pager-btn:disabled {
+	opacity: 0.38;
+	cursor: not-allowed;
+}
+
+.insights-pager-meta {
+	flex: 1 1 auto;
+	min-width: 0;
+	text-align: center;
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	color: var(--vscode-descriptionForeground);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.insights-pager-of {
+	opacity: 0.88;
+	padding: 0 0.14em;
 }
 
 .script-toolbar-actions {
@@ -1454,7 +1487,7 @@ label {
 .insight-file-name {
 	min-width: 0;
 	flex-wrap: wrap;
-	align-items: center;
+	align-items: flex-start;
 }
 
 .insight-file-base {
