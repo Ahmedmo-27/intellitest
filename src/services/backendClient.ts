@@ -2,8 +2,9 @@
  * BackendClient — all HTTP calls from the extension to the Debuggo backend.
  *
  * New stateful API (v2):
- *   generateViaBackendV2()  → POST /generate   (context-aware, persisted)
- *   loadProjectSession()    → GET  /project/:projectId/init
+ *   generateViaBackendV2()     → POST /generate   (context-aware, persisted)
+ *   generateTestCodeViaBackend() → POST /generate-test-code (executable code from prior JSON)
+ *   loadProjectSession()       → GET  /project/:projectId/init
  *
  * Legacy API (v1 — kept for backward compat):
  *   generateViaBackend()    → POST /generate-testcases + /generate-tests
@@ -27,6 +28,7 @@ type ServerTestCase = {
 	expected?: string;
 	priority?: string;
 	tags?: unknown;
+	comments?: unknown;
 };
 
 export type ProjectSession = {
@@ -100,7 +102,8 @@ function mapServerCase(item: ServerTestCase, index: number): TestCaseRow {
 		preconditions: preconditionsText,
 		steps: stepsToDisplayText(item.steps),
 		expectedResult: String(item.expected ?? ''),
-		priority: String(item.priority ?? 'medium')
+		priority: String(item.priority ?? 'medium'),
+		comments: item.comments != null ? String(item.comments) : undefined
 	};
 }
 
@@ -137,44 +140,26 @@ export function mergeJsonBearerHeaders(authToken?: string): Record<string, strin
 	return headers;
 }
 
-/** Groq settings from the backend’s Server/.env (GET /llm-config). */
-export type ServerLlmConfig = {
-	apiKey: string;
-	model: string;
-	baseUrl: string;
-};
-
-/**
- * Loads API_KEY / API_MODEL / API_BASE_URL from the running Debuggo server,
- * which reads Server/.env — not the extension host’s root .env.
- */
-export async function fetchLlmConfigFromBackend(baseUrl: string): Promise<ServerLlmConfig> {
-	const root = baseUrl.replace(/\/$/, '');
-	try {
-		const res = await axios.get<{ apiKey?: string; model?: string; baseUrl?: string; error?: string }>(
-			`${root}/llm-config`,
-			{ timeout: 15_000 }
-		);
-		const apiKey = res.data?.apiKey?.trim() ?? '';
-		if (!apiKey) {
-			throw new Error(
-				res.data?.error?.trim() ||
-					'API_KEY is not set on the Debuggo server. Add API_KEY to Server/.env and restart the server.'
-			);
-		}
-		return {
-			apiKey,
-			model: (res.data?.model ?? 'llama-3.3-70b-versatile').trim(),
-			baseUrl: (res.data?.baseUrl ?? 'https://api.groq.com/openai/v1').trim()
-		};
-	} catch (err) {
-		if (axios.isAxiosError(err)) {
-			const detail = messageFromResponseData(err.response?.data);
-			const suffix = detail ? `: ${detail}` : err.message ? `: ${err.message}` : '';
-			throw new Error(`Could not load LLM config from ${root}/llm-config${suffix}`);
-		}
-		throw err;
-	}
+/** Build a POST /generate-shaped payload when only flat rows are available (e.g. Excel). */
+export function buildGeneratePayloadFromTestCaseRows(
+	testCases: TestCaseRow[],
+	source: string
+): Record<string, unknown> {
+	const rows = testCases.map(tc => ({
+		id: tc.testCaseId,
+		name: tc.title,
+		description: tc.description,
+		preconditions: tc.preconditions,
+		steps: tc.steps
+			.split(/\n/)
+			.map(s => s.replace(/^\d+\.\s*/, '').trim())
+			.filter(Boolean),
+		expected: tc.expectedResult,
+		priority: tc.priority,
+		comments: tc.comments ?? '',
+		tags: [] as string[]
+	}));
+	return { source, testCases: rows };
 }
 
 function bearerOnlyHeaders(authToken?: string): Record<string, string> | undefined {
@@ -286,11 +271,46 @@ export async function generateViaBackendV2(
 		throw new Error('The backend returned no test cases. Check server logs and LLM configuration.');
 	}
 
+	const generateApiPayload =
+		data != null && typeof data === 'object' && !Array.isArray(data)
+			? { ...(data as Record<string, unknown>) }
+			: undefined;
+
 	return {
 		recommendedTestingFramework: '',
 		testCases,
-		testScript: null
+		testScript: null,
+		...(generateApiPayload ? { generateApiPayload } : {})
 	};
+}
+
+/**
+ * POST /generate-test-code — server embeds prior /generate JSON in the prompt and calls the LLM.
+ * JWT is optional; include authToken when the user is signed in.
+ */
+export async function generateTestCodeViaBackend(
+	baseUrl: string,
+	body: { framework: string; generateResponsePayload: Record<string, unknown> },
+	authToken?: string
+): Promise<string> {
+	const root = baseUrl.replace(/\/$/, '');
+	try {
+		const res = await axios.post<{ code?: string }>(
+			`${root}/generate-test-code`,
+			body,
+			{
+				timeout: 120_000,
+				headers: mergeJsonBearerHeaders(authToken)
+			}
+		);
+		const code = res.data?.code;
+		if (typeof code !== 'string' || !code.trim()) {
+			throw new Error('Server returned no test code.');
+		}
+		return code.trim();
+	} catch (err) {
+		throwAxiosDetail(err);
+	}
 }
 
 /**
