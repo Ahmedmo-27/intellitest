@@ -4,7 +4,7 @@ import { Injectable } from '@angular/core';
   providedIn: 'root'
 })
 export class ApiConfig {
-  public readonly BASE_URL = (typeof window !== 'undefined' && (window as any).API_BASE_URL) || 'http://localhost:3000';
+  public readonly BASE_URL = (typeof window !== 'undefined' && (window as any).API_BASE_URL) || 'https://intellitest-hyvw.onrender.com';
   public readonly ENDPOINTS = {
     GENERATE_TESTCASES: '/generate-testcases',
     GENERATE_TESTS: '/generate-tests',
