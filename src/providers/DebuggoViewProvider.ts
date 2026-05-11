@@ -34,6 +34,8 @@ import {
 } from '../services/generatedTestRunInstructions.js';
 import { collectLocalConfigHints } from '../services/localConfigHints.js';
 
+const DEPLOYED_BACKEND_URL = 'https://intellitest-hyvw.onrender.com';
+
 const EMPTY_GENERATION: IntelliGenerationResult = {
 	recommendedTestingFramework: 'Not generated yet',
 	testCases: [],
@@ -83,7 +85,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	private getBackendUrl(): string {
-		return vscode.workspace.getConfiguration('debuggo').get<string>('backendUrl')?.trim() ?? '';
+		return DEPLOYED_BACKEND_URL;
 	}
 
 	/**
@@ -236,7 +238,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 				guest: true,
 				needsBackendUrl: false,
 				bootstrapError:
-					'Could not reach the Debuggo server to verify your account. Check that the backend is running and debuggo.backendUrl is correct, then use Retry below.'
+					'Could not reach the Debuggo hosted backend to verify your account. Please check your internet connection, then use Retry below.'
 			});
 			await this.bootstrapGuestExperience();
 		}
@@ -255,7 +257,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		if (!backendUrl) {
 			void wv.postMessage({
 				command: 'authError',
-				message: 'Configure debuggo.backendUrl in Settings first.'
+				message: 'Could not resolve the Debuggo hosted backend URL.'
 			});
 			void wv.postMessage({ command: 'authBusy', busy: false });
 			return;
@@ -293,7 +295,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		if (!backendUrl) {
 			void wv.postMessage({
 				command: 'authError',
-				message: 'Configure debuggo.backendUrl in Settings first.'
+				message: 'Could not resolve the Debuggo hosted backend URL.'
 			});
 			void wv.postMessage({ command: 'authBusy', busy: false });
 			return;
@@ -501,7 +503,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
-				'Debuggo: set debuggo.backendUrl in Settings (default: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local API).'
+				'Debuggo: could not resolve the hosted backend URL.'
 			);
 			void this.view?.webview.postMessage({ command: 'generationEnded' });
 			return;
@@ -594,7 +596,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		const backendUrl = this.getBackendUrl();
 		if (!backendUrl) {
 			notifyError(
-				'Set debuggo.backendUrl to your Debuggo server (default: https://intellitest-hyvw.onrender.com) so test code can be generated via POST /generate-test-code.'
+				'Could not resolve the Debuggo hosted backend URL, so test code generation is unavailable.'
 			);
 			return;
 		}

@@ -48,7 +48,7 @@
         "debuggo.backendUrl": {
           "type": "string",
           "default": "https://intellitest-hyvw.onrender.com",
-          "description": "Base URL of the Debuggo API (no trailing slash). Default is the hosted backend on Render. Use http://localhost:3000 when running Server locally."
+          "description": "Base URL of the Debuggo hosted API (no trailing slash). This extension is configured to use the deployed Render backend."
         }
       }
     },
