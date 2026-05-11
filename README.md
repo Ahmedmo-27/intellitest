@@ -4,7 +4,7 @@
 
 <h1>Debuggo</h1>
 
-<p><strong>AI-powered VS Code extension for generating structured software test cases — from your real project context.</strong></p>
+<p><strong>AI-powered VS Code extension for test design — generates IEEE-style test cases, runnable test scripts, and one-click Excel reports from your real codebase. Context-aware, framework-detecting, guest-friendly.</strong></p>
 
 <p>
   <a href="https://drive.google.com/file/d/1UP9iwfh7Z4GevF50to298tkthWUM7jLf/view?usp=sharing">
@@ -16,17 +16,10 @@
 </p>
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/IntelliTest.debuggo?label=Version&color=007ACC&logo=visualstudiocode&logoColor=white" alt="Marketplace Version" />
-  </a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
-    <img src="https://img.shields.io/visual-studio-marketplace/i/IntelliTest.debuggo?label=Installs&color=007ACC" alt="Installs" />
-  </a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
-    <img src="https://img.shields.io/visual-studio-marketplace/r/IntelliTest.debuggo?label=Rating&color=007ACC" alt="Rating" />
-  </a>
   <img src="https://img.shields.io/badge/Status-Live-22C55E" alt="Status: Live" />
-  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
+  </a>
 </p>
 
 <p>
@@ -38,15 +31,28 @@
   <img src="https://img.shields.io/badge/VS%20Code%20API-007ACC?logo=visualstudiocode&logoColor=white" alt="VS Code API" />
 </p>
 
+<br />
+
+<img src="./Documents/Debuggo%20-%20High-Level%20Architecture.png" width="820" alt="Debuggo — High-Level Architecture" />
+
+<sub><em>High-level architecture — Syntax &amp; semantics → verification → Groq → validated outputs.</em></sub>
+
 </div>
 
 ---
 
 ## Overview
 
-Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with **real project context** (detected tech stack, AST-derived code insights, and codebase file map), shows results in a table preview, recommends a testing framework, and supports **Excel export**.
+Debuggo is a VS Code sidebar extension that helps developers and testers design tests at AI speed. From a single prompt, it delivers a complete QA artifact:
 
-> Unlike generic chat tools, Debuggo **reads your project** before it writes a single test — so the cases it produces reference functions and parameters that actually exist.
+- **Structured test cases** in industry-standard IEEE format (ID, Title, Description, Preconditions, Steps, Expected Result, Priority)
+- **Runnable test code** generated in the framework it **recommends for your stack**
+- **Code Insights** sidebar that shows the AST-derived symbols (functions, classes, types, JSDoc) the AI is reasoning about — with file-priority detection when you mention a file by name in the prompt
+- **One-click Excel export** of the full test plan, ready to hand off to a QA lead
+- **Tech stack auto-detection** and **example prompt chips** to get you started in seconds
+- **Guest-first** experience: the workspace UI is usable as soon as a backend URL is reachable, with **optional sign-in (JWT)** for per-account history
+
+> Unlike generic chat tools, Debuggo is **purpose-built for testing**: it parses your project's AST, understands code intent via type signatures and JSDoc, applies real testing methodologies — boundary value analysis, negative paths, edge cases — and hands back a QA-ready artifact, not a paragraph of advice.
 
 ## Quick Links
 
@@ -97,10 +103,16 @@ That's it — the shipped default backend URL points to the hosted API, so you c
 
 ### Option 2 — Run from source (for contributors)
 
-1. Clone the repository.
-2. Install dependencies: `npm install`
-3. Open the project in VS Code.
-4. Press `F5` to run the extension in an Extension Development Host window.
+1. **Clone the repository.**
+2. **Install dependencies in two places** (do not skip the second one):
+   ```bash
+   npm install              # repo root — extension build / VS Code tooling
+   cd Server && npm install # Server/ — Express + MongoDB API
+   ```
+3. **Open the project in VS Code.**
+4. **Press `F5`** to run the extension in an Extension Development Host window.
+
+> **Running against a local backend?** You'll also need to flip `debuggo.backendUrl` in `package.json` from the hosted Render URL to `http://localhost:3000` — see [Self-host the API (local server)](#self-host-the-api-local-server) for the full local setup (Mongo + `.env` + the `package.json` line edit). **Do not commit that change.**
 
 ---
 
