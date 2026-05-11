@@ -1,7 +1,7 @@
 # Debuggo
 
 <p align="center">
-  <img src="./media/Debuggo%20-%20Logo.png" width="520" alt="Debuggo — Smart QA, better software" />
+  <img src="./media/Debuggo-Logo.png" width="520" alt="Debuggo — Smart QA, better software" />
 </p>
 
 AI-powered VS Code extension for generating structured software test cases.
