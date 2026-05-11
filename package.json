@@ -2,7 +2,7 @@
   "name": "debuggo",
   "displayName": "Debuggo",
   "description": "A VS Code extension that helps junior testers generate structured test cases by applying standard software testing techniques based on project context.",
-  "version": "0.0.7",
+  "version": "0.0.10",
   "publisher": "IntelliTest",
   "license": "MIT",
   "engines": {
@@ -28,6 +28,11 @@
     "url": "https://github.com/mohamedelziat50/intellitest/issues"
   },
   "homepage": "https://github.com/mohamedelziat50/intellitest#readme",
+  "icon": "media/Debuggo-Logo.png",
+  "galleryBanner": {
+    "color": "#ffffff",
+    "theme": "light"
+  },
   "overrides": {
     "supports-color": "7.2.0"
   },
@@ -42,8 +47,8 @@
       "properties": {
         "debuggo.backendUrl": {
           "type": "string",
-          "default": "http://localhost:3000",
-          "description": "Base URL of the Debuggo API (no trailing slash). Default matches Server/.env PORT (3000). Set https://intellitest-hyvw.onrender.com for the hosted backend."
+          "default": "https://intellitest-hyvw.onrender.com",
+          "description": "Base URL of the Debuggo hosted API (no trailing slash). This extension is configured to use the deployed Render backend."
         }
       }
     },
