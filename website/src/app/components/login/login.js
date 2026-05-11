@@ -34,37 +34,88 @@ var __runInitializers = (this && this.__runInitializers) || function (thisArg, i
     return useValue ? value : void 0;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ApiConfig = void 0;
+exports.Login = void 0;
 const core_1 = require("@angular/core");
-let ApiConfig = (() => {
-    let _classDecorators = [(0, core_1.Injectable)({
-            providedIn: 'root'
+const common_1 = require("@angular/common");
+const forms_1 = require("@angular/forms");
+const router_1 = require("@angular/router");
+let Login = (() => {
+    let _classDecorators = [(0, core_1.Component)({
+            selector: 'app-login',
+            imports: [common_1.CommonModule, forms_1.ReactiveFormsModule, router_1.RouterLink],
+            templateUrl: './login.html',
+            styleUrl: './login.css'
         })];
     let _classDescriptor;
     let _classExtraInitializers = [];
     let _classThis;
-    var ApiConfig = class {
+    var Login = class {
         static { _classThis = this; }
         static {
             const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(null) : void 0;
             __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
-            ApiConfig = _classThis = _classDescriptor.value;
+            Login = _classThis = _classDescriptor.value;
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
         }
-        BASE_URL = (typeof window !== 'undefined' && window.API_BASE_URL) || 'http://localhost:3000';
-        ENDPOINTS = {
-            GENERATE_TESTCASES: '/generate-testcases',
-            GENERATE_TESTS: '/generate-tests',
-            ANALYZE_FAILURE: '/analyze-failure',
-            AUTH_LOGIN: '/auth/login',
-            AUTH_ME: '/auth/me',
-        };
-        getApiUrl(endpoint) {
-            return `${this.BASE_URL}${endpoint}`;
+        fb;
+        auth;
+        router;
+        route;
+        loginForm;
+        errorMessage = '';
+        isSubmitting = false;
+        redirectUrl = '/demo';
+        constructor(fb, auth, router, route) {
+            this.fb = fb;
+            this.auth = auth;
+            this.router = router;
+            this.route = route;
+            this.loginForm = this.fb.group({
+                email: ['', [forms_1.Validators.required, forms_1.Validators.email]],
+                password: ['', [forms_1.Validators.required]],
+            });
+        }
+        ngOnInit() {
+            const redirect = this.route.snapshot.queryParamMap.get('redirect');
+            this.redirectUrl = redirect && redirect.startsWith('/') ? redirect : '/demo';
+            void this.redirectIfAuthenticated();
+        }
+        async redirectIfAuthenticated() {
+            if (await this.auth.validateSession()) {
+                await this.router.navigateByUrl(this.redirectUrl);
+            }
+        }
+        get emailInvalid() {
+            const control = this.loginForm.get('email');
+            return !!control && control.invalid && (control.touched || control.dirty);
+        }
+        get passwordInvalid() {
+            const control = this.loginForm.get('password');
+            return !!control && control.invalid && (control.touched || control.dirty);
+        }
+        async submit() {
+            this.errorMessage = '';
+            if (this.loginForm.invalid) {
+                this.loginForm.markAllAsTouched();
+                return;
+            }
+            this.isSubmitting = true;
+            try {
+                const email = String(this.loginForm.value.email || '').trim();
+                const password = String(this.loginForm.value.password || '');
+                await this.auth.login(email, password);
+                await this.router.navigateByUrl(this.redirectUrl);
+            }
+            catch (error) {
+                this.errorMessage = error instanceof Error ? error.message : 'Login failed. Please try again.';
+            }
+            finally {
+                this.isSubmitting = false;
+            }
         }
     };
-    return ApiConfig = _classThis;
+    return Login = _classThis;
 })();
-exports.ApiConfig = ApiConfig;
-//# sourceMappingURL=api-config.js.map
+exports.Login = Login;
+//# sourceMappingURL=login.js.map
