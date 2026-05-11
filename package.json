@@ -2,7 +2,7 @@
   "name": "debuggo",
   "displayName": "Debuggo",
   "description": "A VS Code extension that helps junior testers generate structured test cases by applying standard software testing techniques based on project context.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "IntelliTest",
   "license": "MIT",
   "engines": {
