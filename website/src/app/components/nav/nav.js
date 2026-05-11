@@ -36,11 +36,12 @@ var __runInitializers = (this && this.__runInitializers) || function (thisArg, i
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Nav = void 0;
 const core_1 = require("@angular/core");
+const common_1 = require("@angular/common");
 const router_1 = require("@angular/router");
 let Nav = (() => {
     let _classDecorators = [(0, core_1.Component)({
             selector: 'app-nav',
-            imports: [router_1.RouterLink],
+            imports: [router_1.RouterLink, common_1.NgIf, common_1.AsyncPipe],
             templateUrl: './nav.html',
             styleUrl: './nav.css'
         })];
@@ -55,6 +56,13 @@ let Nav = (() => {
             Nav = _classThis = _classDescriptor.value;
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
+        }
+        auth;
+        constructor(auth) {
+            this.auth = auth;
+        }
+        logout() {
+            this.auth.logout();
         }
     };
     return Nav = _classThis;

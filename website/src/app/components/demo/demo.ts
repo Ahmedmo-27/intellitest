@@ -14,7 +14,7 @@ export class Demo {
   demoForm: FormGroup;
   generatedTestCases: any[] = [];
   testCodeScript: any = null;
-  
+
   isLoading = false;
   loadingMessage = '';
   errorMessage = '';

@@ -6,7 +6,9 @@ import * as testCodeController from "../controllers/testCodeController.js";
 import { generate, analyzeIntent }     from "../controllers/generateController.js";
 import {
   initProject,
+  listProjects,
   syncProject,
+  getProjectRelationships,
   analyzeFeatureImpact,
 } from "../controllers/projectController.js";
 
@@ -56,11 +58,23 @@ router.post("/generate-test-code", validateGenerateTestCode, testCodeController.
 router.get("/project/:projectId/init", initProject);
 
 /**
+ * GET /projects
+ * List projects for the signed-in user.
+ */
+router.get("/projects", listProjects);
+
+/**
  * POST /project/:projectId/sync
  * Called by extension on load or reset: sends all 1000+ files to build the 
  * Global Intelligence Graph (Features & Relationships) in MongoDB.
  */
 router.post("/project/:projectId/sync", syncProject);
+
+/**
+ * GET /project/:projectId/relationships
+ * Feature relationship graph + weights for visualization.
+ */
+router.get("/project/:projectId/relationships", getProjectRelationships);
 
 /**
  * POST /project/:projectId/feature-impact

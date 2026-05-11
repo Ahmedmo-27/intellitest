@@ -21,6 +21,7 @@ import * as projectService from "../services/projectService.js";
 import * as contextService from "../services/contextService.js";
 import * as guardrailService from "../services/guardrailService.js";
 import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
+import { normalizeFeatureKey } from "../services/featureGraphService.js";
 import {
   mapPromptToFeatures,
   domainMatchedFeatures,
@@ -36,6 +37,7 @@ import {
   makeQuickValidator,
   TEST_CASES_SCHEMA,
 } from "../validators/outputValidator.js";
+import { computeFeatureWeightsSafe } from "../utils/safeWeighting.js";
 
 // ── Safe fallback (returned alongside error payloads) ─────────────────────────
 
@@ -337,6 +339,8 @@ export async function generate(req, res) {
 
     // ── Step 8: Upsert coverage & returned features ───────────────────────────
     const returnedFeatures = [];
+    let weightSummary = null;
+    let weightsByName = null;
     if (userId && testCases.length > 0 && matchedFeatureNames.length > 0) {
       const coverageResults = matchedFeatureNames.map((featureName) => {
         const cov = calculateCoverage(featureName, testCases);
@@ -349,11 +353,35 @@ export async function generate(req, res) {
       });
       await projectService.upsertFeatureCoverage(userId, projectId, coverageResults);
 
+      const coverageByFeature = {};
+      for (const cov of coverageResults) {
+        coverageByFeature[cov.feature] = cov.estimatedCoverage;
+      }
+
+      const weightResult = computeFeatureWeightsSafe({
+        relationships,
+        features: extractedFeatures,
+        coverageByFeature,
+        projectId,
+        userId,
+        source: "generate",
+      });
+      if (weightResult) {
+        weightsByName = weightResult.weightsByName;
+        weightSummary = {
+          weightedCoverage: weightResult.weightedCoverage,
+          weightSum: weightResult.weightSum,
+        };
+      }
+
       for (let i = 0; i < coverageResults.length; i++) {
         const cov = coverageResults[i];
         const featureName = cov.feature;
         const featureObj = extractedFeatures.find((f) => f.normalizedName === featureName);
         const matchFeat = matchResult.features.find((f) => f.name === featureName);
+        const weightKey = normalizeFeatureKey(featureName);
+        const weightEntry = weightsByName ? weightsByName[weightKey] : null;
+
         returnedFeatures.push({
           name: featureName,
           files: featureObj ? featureObj.files : [],
@@ -361,6 +389,7 @@ export async function generate(req, res) {
           coverage: cov.estimatedCoverage,
           confidence: matchFeat ? matchFeat.confidence : 0,
           missingTestAreas: cov.missingAreas,
+          weight: weightEntry ? weightEntry.weight : null,
         });
       }
     }
@@ -381,6 +410,12 @@ export async function generate(req, res) {
         matchConfidence: matchResult.features.length > 0 ? matchResult.features[0].confidence : 0
       },
     };
+
+    if (weightSummary && weightSummary.weightedCoverage != null) {
+      responsePayload.meta.weightedCoverage = weightSummary.weightedCoverage;
+      responsePayload.meta.weightTotal = weightSummary.weightSum;
+      responsePayload.meta.weightingModel = "core-connectivity-v1";
+    }
 
     if (matchResult.matchType === "partial") {
       responsePayload.warning = "Prompt only partially matched the project context. The output has been limited to known features.";
