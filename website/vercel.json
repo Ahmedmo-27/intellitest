@@ -1,4 +1,5 @@
 {
+  "outputDirectory": "dist/intellitest-app/browser",
   "rewrites": [
     {
       "source": "/(.*)",
