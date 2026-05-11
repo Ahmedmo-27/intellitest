@@ -13,6 +13,9 @@
   <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
     <img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install%20Now-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Install on VS Code Marketplace" />
   </a>
+  <a href="#architecture">
+    <img src="https://img.shields.io/badge/%E2%97%87%20Architecture-View%20Diagram-10B981?style=for-the-badge" alt="View Architecture Diagram" />
+  </a>
 </p>
 
 <p>
@@ -30,12 +33,6 @@
   <img src="https://img.shields.io/badge/Groq-F55036?logo=groq&logoColor=white" alt="Groq" />
   <img src="https://img.shields.io/badge/VS%20Code%20API-007ACC?logo=visualstudiocode&logoColor=white" alt="VS Code API" />
 </p>
-
-<br />
-
-<img src="./Documents/Debuggo%20-%20High-Level%20Architecture.png" width="820" alt="Debuggo — High-Level Architecture" />
-
-<sub><em>High-level architecture — Syntax &amp; semantics → verification → Groq → validated outputs.</em></sub>
 
 </div>
 
@@ -66,6 +63,7 @@ Debuggo is a VS Code sidebar extension that helps developers and testers design 
 - [Install](#install)
 - [Features](#features)
 - [How It Works](#how-it-works)
+- [Architecture](#architecture)
 - [Self-host the API (local server)](#self-host-the-api-local-server)
 - [Project Structure](#project-structure)
 - [Codebase Content Reading Feature](#codebase-content-reading-feature)
@@ -136,6 +134,28 @@ That's it — the shipped default backend URL points to the hosted API, so you c
 5. Request is sent to AI (Groq or configured OpenAI-compatible API) with prompt + comprehensive project context.
 6. AI returns structured JSON test cases.
 7. Results are displayed in the sidebar table preview with optional Excel export.
+
+---
+
+## Architecture
+
+The diagram below shows how the four moving pieces — the **VS Code extension**, the **Node.js backend API**, **MongoDB**, and the **Groq AI provider** — collaborate to turn a prompt into validated test cases.
+
+<div align="center">
+
+<img src="./Documents/Debuggo%20-%20High-Level%20Architecture.png" width="900" alt="Debuggo — High-Level Architecture" />
+
+<sub><em>Syntax &amp; semantics → verification → Groq → validated outputs.</em></sub>
+
+</div>
+
+**At a glance:**
+
+- **VS Code Extension** — runs the **Syntax** (AST / symbols / structure) and **Semantic** (types, signatures, JSDoc) layers on the user's workspace, then ships a compact context payload to the backend.
+- **Backend API (Node.js)** — performs three jobs in order: **(1) Verification** (does the prompt match the project's reality?), **(2) Prompt assembly** (merges user intent + project map + insights), and **(3) Output validation** (JSON schema + sanity vs. user intent).
+- **MongoDB** — persists the project map, features, relationships, coverage, context, and chat history per user + project.
+- **Groq** — generates the structured **test cases** (JSON) and, when scenarios exist, the **test script** code, in a request/response loop with the backend.
+- **Output to the user** — validated test cases land in the sidebar UI, where they can be reviewed, executed, exported to Excel, or saved as generated code.
 
 ---
 
@@ -231,8 +251,6 @@ Key files and folders:
 
 - `AI_CONTEXT.md`
   - Context file for AI tools and coding assistants.
-
-Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webview/style.css`, this project currently uses `debuggo.html`, `debuggo.js`, and `debuggo.css` with the same roles.
 
 ## Codebase Content Reading Feature
 
@@ -347,8 +365,9 @@ resetForm(formRef: HTMLFormElement): void - Clears form and resets state
 
 The **⭐** symbol marks priority files; **type signatures** are always visible in UI; **descriptions** are sent to AI but not displayed in UI (unless JSDoc exists).
 
+> **Efficient by design:** Debuggo never sends raw source code. It walks the AST and pulls only matched symbols with their metadata — a 1000-line file might yield 5-10 functions — keeping the AI context small, focused, and safe.
 
-## Where Syntax & Semantic Layers Happen
+### How JSDoc improves results
 
 **In One Picture:**
 ```
