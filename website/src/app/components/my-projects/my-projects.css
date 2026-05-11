@@ -1,0 +1,144 @@
+.projects-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+  color: #e2e8f0;
+}
+
+.projects-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.projects-header h1 {
+  margin: 0;
+}
+
+.projects-header p {
+  margin: 0.4rem 0 0;
+  color: #94a3b8;
+}
+
+.btn {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  padding: 0.55rem 0.9rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.user-card,
+.project-selector,
+.graph-card,
+.summary-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 14px;
+}
+
+.user-card,
+.project-selector,
+.graph-card {
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.user-card h2,
+.graph-card h3 {
+  margin-top: 0;
+}
+
+.user-table,
+.graph-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.user-table th,
+.user-table td,
+.graph-table th,
+.graph-table td {
+  text-align: left;
+  padding: 0.55rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.project-selector label {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+
+.project-selector select {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(2, 6, 23, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+}
+
+.graph-status,
+.graph-empty {
+  margin-top: 1rem;
+  color: #94a3b8;
+}
+
+.graph-status.error {
+  color: #f87171;
+}
+
+.graph-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.summary-card {
+  padding: 0.8rem;
+}
+
+.summary-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.summary-value {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.summary-muted {
+  color: #94a3b8;
+}
+
+.graph-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.graph-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.graph-pill {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}

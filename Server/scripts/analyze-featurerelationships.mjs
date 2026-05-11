@@ -1,5 +1,5 @@
 /**
- * Dump + analyze the FeatureRelationship collection (MongoDB).
+ * Dump + analyze the FeatureRelationship hub collection (MongoDB).
  *
  * Usage (from Server/):
  *   node --env-file=.env scripts/analyze-featurerelationships.mjs
@@ -12,6 +12,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 import { db as dbConfig } from "../src/config.js";
 import { FeatureRelationship } from "../src/models/FeatureRelationship.js";
+import { flattenHubsToEdges } from "../src/services/featureGraphHubService.js";
 
 function bucketConfidence(c) {
   if (typeof c !== "number" || Number.isNaN(c)) return "unset_or_nan";
@@ -37,10 +38,10 @@ async function main() {
     socketTimeoutMS: dbConfig.socketTimeout,
   });
 
-  const total = await FeatureRelationship.countDocuments();
-  const docs = await FeatureRelationship.find({})
-    .sort({ projectId: 1, confidence: -1, source: 1, target: 1 })
-    .lean();
+  const hubCount = await FeatureRelationship.countDocuments();
+  const hubs = await FeatureRelationship.find({}).sort({ projectId: 1, hubFeature: 1 }).lean();
+  const docs = flattenHubsToEdges(hubs);
+  const total = docs.length;
 
   const byType = new Map();
   const byProject = new Map();
@@ -69,8 +70,10 @@ async function main() {
 
   const report = {
     generatedAt: new Date().toISOString(),
+    storageMode: "FeatureRelationship (compact hubs)",
+    hubDocuments: hubCount,
+    expandedEdgeCount: total,
     collection: FeatureRelationship.collection.name,
-    totalDocuments: total,
     aggregates: {
       byRelationType: mapToSortedObject(byType),
       byProjectId: mapToSortedObject(byProject),
@@ -82,8 +85,9 @@ async function main() {
       edgesWithEmptyFiles: emptyFiles,
       duplicateLogicalEdgesDetected: duplicates.length,
     },
+    hubSamples: hubs.slice(0, 5),
     documents: docs.map((d) => ({
-      _id: String(d._id),
+      _id: d._hubId ? `${String(d._hubId)}:${d.source}|${d.type}|${d.target}` : String(d._id),
       userId: d.userId ? String(d.userId) : null,
       projectId: d.projectId,
       source: d.source,
@@ -97,9 +101,10 @@ async function main() {
     })),
   };
 
-  console.log("=== FeatureRelationship analysis ===\n");
-  console.log(`Collection: ${report.collection}`);
-  console.log(`Total documents: ${report.totalDocuments}\n`);
+  console.log("=== Feature graph analysis ===\n");
+  console.log(`Mode: ${report.storageMode}`);
+  console.log(`Hub documents: ${hubCount} | Expanded edges: ${total}`);
+  console.log(`Collection: ${report.collection}\n`);
 
   console.log("--- By relation type ---");
   console.log(JSON.stringify(report.aggregates.byRelationType, null, 2));
@@ -130,7 +135,7 @@ async function main() {
       console.log("- Most edges lack `evidence`: relationship detector may not be recording why edges exist.");
     }
     if (duplicates.length > 0) {
-      console.log("- Duplicates suggest repeated sync without idempotent upsert key alignment; check unique index userId+source+target+type+projectId.");
+      console.log("- Duplicates suggest repeated sync without clearing project scope; check unique index userId+projectId+hubFeature.");
     }
     const lowShare =
       (report.aggregates.byConfidenceBucket["low (0.4–0.59)"] || 0) +

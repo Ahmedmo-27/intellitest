@@ -49,9 +49,16 @@ export type ProjectSession = {
 	} | null;
 	features: Array<{
 		name: string;
-		description: string;
-		testScore: number;
-		metrics: {
+		normalizedName?: string;
+		type?: 'ui' | 'backend' | 'api' | 'service' | 'fullstack';
+		hasFrontend?: boolean;
+		hasBackend?: boolean;
+		importanceScore?: number;
+		files?: string[];
+		synonyms?: string[];
+		description?: string;
+		testScore?: number;
+		metrics?: {
 			totalTests: number;
 			passedTests: number;
 			failedTests: number;
@@ -175,7 +182,7 @@ function throwAxiosDetail(err: unknown): never {
 	if (axios.isAxiosError(err)) {
 		if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
 			throw new Error(
-				'Cannot reach the Debuggo backend. Start the API (cd Server && npm start), or set Settings → debuggo.backendUrl to your server (default: http://localhost:3000; hosted: https://intellitest-hyvw.onrender.com).'
+				'Cannot reach the Debuggo hosted backend. Check that https://intellitest-hyvw.onrender.com is reachable.'
 			);
 		}
 		const fromBody = err.response?.data != null ? messageFromResponseData(err.response.data) : undefined;

@@ -18,6 +18,11 @@ import { AIGeneration }   from "../models/AIGeneration.js";
 import { AIMetrics }      from "../models/AIMetrics.js";
 import { Feature }        from "../models/Feature.js";
 import { FeatureRelationship } from "../models/FeatureRelationship.js";
+import {
+  groupEdgesByHub,
+  hubsToInsertDocs,
+  flattenHubsToEdges,
+} from "./featureGraphHubService.js";
 import { FeatureCoverage }     from "../models/FeatureCoverage.js";
 import { logger }         from "../utils/logger.js";
 import { unionArrays }    from "../utils/helpers.js";
@@ -40,12 +45,22 @@ function normalizeLegacyFeatureRow(doc) {
   } else if (typeof doc.testScore === "number") {
     importanceScore = Math.min(1, Math.max(0, doc.testScore / 100));
   }
+  const t = doc.type || "backend";
+  const hasFrontend =
+    typeof doc.hasFrontend === "boolean" ? doc.hasFrontend : t === "ui" || t === "fullstack";
+  const hasBackend =
+    typeof doc.hasBackend === "boolean"
+      ? doc.hasBackend
+      : t === "backend" || t === "api" || t === "service" || t === "fullstack";
+
   return {
     ...doc,
     normalizedName,
     importanceScore,
     files: Array.isArray(doc.files) ? doc.files : [],
-    type: doc.type || "ui",
+    type: t,
+    hasFrontend,
+    hasBackend,
   };
 }
 
@@ -327,7 +342,8 @@ export async function loadFeatures(userId, projectId) {
  */
 export async function loadFeatureRelationships(userId, projectId) {
   if (!userId) return [];
-  return FeatureRelationship.find({ userId, projectId }).lean();
+  const hubs = await FeatureRelationship.find({ userId, projectId }).lean();
+  return flattenHubsToEdges(hubs);
 }
 
 /**
@@ -351,6 +367,8 @@ export async function syncFeatureIntelligence(userId, projectId, features, relat
             normalizedName: f.normalizedName,
             files: Array.isArray(f.files) ? f.files : [],
             type: f.type ?? "backend",
+            hasFrontend: f.hasFrontend === true,
+            hasBackend: f.hasBackend === true,
             importanceScore: typeof f.importanceScore === "number" ? f.importanceScore : 0.5,
             synonyms: Array.isArray(f.synonyms) ? f.synonyms : [],
           },
@@ -362,31 +380,26 @@ export async function syncFeatureIntelligence(userId, projectId, features, relat
   }
 
   if (relationships && relationships.length > 0) {
-    const relOps = relationships.map((r) => ({
-      updateOne: {
-        filter: {
-          userId,
-          projectId,
-          source: r.source,
-          target: r.target,
-          type: r.type,
-        },
-        update: {
-          $set: {
-            userId,
-            projectId,
-            source: r.source,
-            target: r.target,
-            type: r.type,
-            confidence: typeof r.confidence === "number" ? r.confidence : 0.5,
-            evidence: Array.isArray(r.evidence) ? r.evidence : [],
-            files: Array.isArray(r.files) ? r.files : [],
-          },
-        },
-        upsert: true,
-      },
-    }));
-    await FeatureRelationship.bulkWrite(relOps, { ordered: false });
+    const grouped = groupEdgesByHub(relationships);
+    const hubDocs = hubsToInsertDocs(userId, projectId, grouped);
+    if (hubDocs.length === 0) {
+      logger.warn("sync_feature_graph_no_hubs", {
+        projectId,
+        incomingCount: relationships.length,
+      });
+      return;
+    }
+
+    await FeatureRelationship.deleteMany({ userId, projectId });
+    try {
+      await FeatureRelationship.insertMany(hubDocs);
+    } catch (err) {
+      logger.error("feature_relationship_insert_failed", {
+        projectId,
+        message: err.message,
+      });
+      throw err;
+    }
   }
 }
 

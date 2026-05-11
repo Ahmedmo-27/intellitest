@@ -1,7 +1,6 @@
 import { Injectable } from '@angular/core';
 import { ApiConfig } from './api-config';
 import { AuthService } from './auth.service';
-import { getDummyProjectGraph, getDummyProjects, useDummyData } from '../mock/demo-dummy-data';
 
 export type ProjectSummary = {
   projectId: string;
@@ -43,14 +42,12 @@ export type ProjectGraphResponse = {
   providedIn: 'root'
 })
 export class DemoService {
-  private readonly useDummyData = useDummyData;
-
   constructor(private config: ApiConfig, private auth: AuthService) {}
 
   private buildHeaders(): HeadersInit {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = this.auth.getToken();
-    if (token && !this.useDummyData) {
+    if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
@@ -106,21 +103,11 @@ export class DemoService {
   }
 
   async requestProjects(): Promise<ProjectSummary[]> {
-    if (this.useDummyData) {
-      return getDummyProjects();
-    }
     const data = await this.getJson(this.config.ENDPOINTS.PROJECTS);
     return Array.isArray(data.projects) ? data.projects : [];
   }
 
   async requestProjectGraph(projectId: string): Promise<ProjectGraphResponse> {
-    if (this.useDummyData) {
-      const graph = getDummyProjectGraph(projectId);
-      if (!graph) {
-        throw new Error('Project not found in dummy data.');
-      }
-      return graph;
-    }
     const response = await fetch(this.config.getProjectRelationshipsUrl(projectId), {
       method: 'GET',
       headers: this.buildHeaders(),

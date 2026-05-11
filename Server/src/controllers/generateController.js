@@ -21,7 +21,7 @@ import * as projectService from "../services/projectService.js";
 import * as contextService from "../services/contextService.js";
 import * as guardrailService from "../services/guardrailService.js";
 import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
-import { computeFeatureWeights, normalizeFeatureKey } from "../services/featureGraphService.js";
+import { normalizeFeatureKey } from "../services/featureGraphService.js";
 import {
   mapPromptToFeatures,
   domainMatchedFeatures,
@@ -37,6 +37,7 @@ import {
   makeQuickValidator,
   TEST_CASES_SCHEMA,
 } from "../validators/outputValidator.js";
+import { computeFeatureWeightsSafe } from "../utils/safeWeighting.js";
 
 // ── Safe fallback (returned alongside error payloads) ─────────────────────────
 
@@ -357,16 +358,21 @@ export async function generate(req, res) {
         coverageByFeature[cov.feature] = cov.estimatedCoverage;
       }
 
-      const weightResult = computeFeatureWeights(
+      const weightResult = computeFeatureWeightsSafe({
         relationships,
-        extractedFeatures,
+        features: extractedFeatures,
         coverageByFeature,
-      );
-      weightsByName = weightResult.weightsByName;
-      weightSummary = {
-        weightedCoverage: weightResult.weightedCoverage,
-        weightSum: weightResult.weightSum,
-      };
+        projectId,
+        userId,
+        source: "generate",
+      });
+      if (weightResult) {
+        weightsByName = weightResult.weightsByName;
+        weightSummary = {
+          weightedCoverage: weightResult.weightedCoverage,
+          weightSum: weightResult.weightSum,
+        };
+      }
 
       for (let i = 0; i < coverageResults.length; i++) {
         const cov = coverageResults[i];
@@ -493,8 +499,13 @@ export async function analyzeIntent(req, res) {
     const domainMatches = domainMatchedFeatures(matchedFeatureNames);
     const catalogDomainHints = domainMatchedFeatures(catalogNames);
 
-    // No real domain feature matched — align with /generate (skip expensive mapping).
-    if (prompt.trim() && extractedFeatures.length > 0 && domainMatches.length === 0) {
+    // Prompt only hit generic/meta feature labels (e.g. tests/) — align with POST /generate.
+    if (
+      prompt.trim() &&
+      extractedFeatures.length > 0 &&
+      matchedFeatureNames.length > 0 &&
+      domainMatches.length === 0
+    ) {
       const hintList = catalogDomainHints.length ? catalogDomainHints : catalogNames;
       return res.json({
         decision: "none",

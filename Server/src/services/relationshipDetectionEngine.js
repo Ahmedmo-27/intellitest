@@ -12,6 +12,24 @@ import {
 } from "./featureNormalization.js";
 import { shouldKeepEdge } from "./graphQualityFilters.js";
 
+function featureHasFrontend(f) {
+  if (typeof f.hasFrontend === "boolean") return f.hasFrontend;
+  return f.type === "ui" || f.type === "fullstack";
+}
+
+function featureHasBackend(f) {
+  if (typeof f.hasBackend === "boolean") return f.hasBackend;
+  return f.type === "backend" || f.type === "api" || f.type === "service" || f.type === "fullstack";
+}
+
+function isPrimarilyUi(f) {
+  return featureHasFrontend(f) && !featureHasBackend(f);
+}
+
+function isPrimarilyServer(f) {
+  return featureHasBackend(f) && !featureHasFrontend(f);
+}
+
 export const RELATION_TYPES = [
   "depends_on",
   "triggers",
@@ -175,16 +193,16 @@ export function detectFeatureRelationships(projectMap, features) {
     const peers = stemToFeatures(featuresByStem, f.stem).filter((x) => x.normalizedName !== f.normalizedName);
     for (const p of peers) {
       const files12 = sharedFiles(f.files, p.files);
-      if (f.type === "ui" && (p.type === "api" || p.type === "backend")) {
+      if (isPrimarilyUi(f) && isPrimarilyServer(p)) {
         pushEdge(f.normalizedName, p.normalizedName, "ui_for", 0.82 + Math.min(0.08, files12.length * 0.02), "stem match: UI targets backend/route family", files12);
-      } else if ((f.type === "api" || f.type === "backend") && p.type === "ui") {
+      } else if (isPrimarilyUi(p) && isPrimarilyServer(f)) {
         pushEdge(p.normalizedName, f.normalizedName, "ui_for", 0.82 + Math.min(0.08, files12.length * 0.02), "stem match: UI targets backend/route family", files12);
       }
 
-      if (f.type === "backend" && p.type === "service" && f.stem === p.stem) {
+      if ((f.type === "backend" || f.type === "fullstack") && p.type === "service" && f.stem === p.stem) {
         pushEdge(f.normalizedName, p.normalizedName, "uses", 0.86, "controller/handler uses same-stem service", files12);
       }
-      if (f.type === "service" && p.type === "backend" && f.stem === p.stem) {
+      if (f.type === "service" && (p.type === "backend" || p.type === "fullstack") && f.stem === p.stem) {
         pushEdge(p.normalizedName, f.normalizedName, "writes_to", 0.72, "service persists via same-stem backend layer", files12);
       }
     }
@@ -207,7 +225,7 @@ export function detectFeatureRelationships(projectMap, features) {
       const files12 = sharedFiles(f.files, p.files);
       const conf = 0.55 + Math.min(0.2, overlap * 0.06) + Math.min(0.08, files12.length * 0.02);
       const ev = `shared route segment: ${sharedSeg.slice(0, 3).join(", ")}`;
-      if (f.type === "ui" && p.type !== "ui") {
+      if (featureHasFrontend(f) && featureHasBackend(p) && !featureHasFrontend(p)) {
         pushEdge(f.normalizedName, p.normalizedName, "ui_for", conf, ev, files12);
       } else {
         pushEdge(f.normalizedName, p.normalizedName, "depends_on", conf * 0.92, ev, files12);
@@ -233,13 +251,13 @@ export function detectFeatureRelationships(projectMap, features) {
         const sf = sharedFiles(a.files, b.files);
         if (sf.length === 0) continue;
 
-        if (a.type === "ui" && b.type !== "ui") {
+        if (isPrimarilyUi(a) && isPrimarilyServer(b)) {
           pushEdge(a.normalizedName, b.normalizedName, "ui_for", 0.78 + Math.min(0.07, sf.length * 0.01), "co-located UI + implementation files", sf);
-        } else if (b.type === "ui" && a.type !== "ui") {
+        } else if (isPrimarilyUi(b) && isPrimarilyServer(a)) {
           pushEdge(b.normalizedName, a.normalizedName, "ui_for", 0.78 + Math.min(0.07, sf.length * 0.01), "co-located UI + implementation files", sf);
-        } else if (a.type === "backend" && b.type === "service") {
+        } else if ((a.type === "backend" || a.type === "fullstack") && b.type === "service") {
           pushEdge(a.normalizedName, b.normalizedName, "uses", 0.74, "shared module: handler delegates to service", sf);
-        } else if (b.type === "backend" && a.type === "service") {
+        } else if ((b.type === "backend" || b.type === "fullstack") && a.type === "service") {
           pushEdge(b.normalizedName, a.normalizedName, "uses", 0.74, "shared module: handler delegates to service", sf);
         } else if (a.type === "api" && (b.type === "backend" || b.type === "service")) {
           pushEdge(a.normalizedName, b.normalizedName, "reads_from", 0.7, "route wires into implementation", sf);

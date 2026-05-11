@@ -14,7 +14,7 @@ export class Login implements OnInit {
   loginForm: FormGroup;
   errorMessage = '';
   isSubmitting = false;
-  redirectUrl = '/demo';
+  redirectUrl = '/my-projects';
 
   constructor(
     private fb: FormBuilder,
@@ -30,7 +30,7 @@ export class Login implements OnInit {
 
   ngOnInit() {
     const redirect = this.route.snapshot.queryParamMap.get('redirect');
-    this.redirectUrl = redirect && redirect.startsWith('/') ? redirect : '/demo';
+    this.redirectUrl = redirect && redirect.startsWith('/') ? redirect : '/my-projects';
 
     void this.redirectIfAuthenticated();
   }

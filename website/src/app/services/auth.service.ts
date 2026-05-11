@@ -1,7 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { ApiConfig } from './api-config';
-import { dummyAuth, dummyAuthToken, useDummyData } from '../mock/demo-dummy-data';
 
 export interface AuthUser {
   id?: string;
@@ -14,6 +13,11 @@ interface LoginResponse {
   user?: AuthUser;
 }
 
+interface SignupResponse {
+  token: string;
+  user?: AuthUser;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -21,8 +25,6 @@ export class AuthService {
   private readonly tokenKey = 'intellitest.auth.token';
   private readonly userKey = 'intellitest.auth.user';
   private readonly isBrowser = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-  private readonly useDummyData = useDummyData;
-
   private token: string | null = this.readToken();
   private lastValidatedAt = 0;
   private readonly validationTtlMs = 5 * 60 * 1000;
@@ -44,17 +46,6 @@ export class AuthService {
   }
 
   async login(email: string, password: string): Promise<AuthUser> {
-    if (this.useDummyData) {
-      const normalized = this.normalizeEmail(email);
-      const dummyEmail = this.normalizeEmail(dummyAuth.email);
-      if (normalized !== dummyEmail || String(password) !== dummyAuth.password) {
-        throw new Error('Invalid email or password.');
-      }
-      this.setAuth(dummyAuthToken, dummyAuth.user);
-      this.lastValidatedAt = Date.now();
-      return dummyAuth.user;
-    }
-
     const response = await fetch(this.config.getApiUrl(this.config.ENDPOINTS.AUTH_LOGIN), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -76,22 +67,33 @@ export class AuthService {
     return user;
   }
 
+  async signup(name: string, email: string, password: string): Promise<AuthUser> {
+    const response = await fetch(this.config.getApiUrl(this.config.ENDPOINTS.AUTH_SIGNUP), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await this.readErrorMessage(response));
+    }
+
+    const data = (await response.json()) as SignupResponse;
+    if (!data?.token) {
+      throw new Error('Sign up failed. Missing token.');
+    }
+
+    const user = data.user ?? { email, name };
+    this.setAuth(data.token, user);
+    this.lastValidatedAt = Date.now();
+    return user;
+  }
+
   logout() {
     this.setAuth(null, null);
   }
 
   async validateSession(force = false): Promise<boolean> {
-    if (this.useDummyData) {
-      if (!this.token) {
-        this.setAuth(null, null);
-        return false;
-      }
-      if (!this.userSubject.value) {
-        this.setAuth(this.token, dummyAuth.user);
-      }
-      return true;
-    }
-
     if (!this.token) {
       this.setAuth(null, null);
       return false;
@@ -121,9 +123,6 @@ export class AuthService {
   }
 
   private buildAuthHeaders(): HeadersInit {
-    if (this.useDummyData) {
-      return {};
-    }
     const headers: Record<string, string> = {};
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
