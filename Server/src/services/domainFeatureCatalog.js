@@ -203,6 +203,26 @@ const PHRASE_TO_CANONICAL = {
   "settings preferences": "settings",
 };
 
+/**
+ * Extra natural-language phrases for prompts where stop-word stripping breaks tokens
+ * (e.g. "log in" → ["log"] only) or hyphenated UI copy ("sign-in").
+ */
+const PROMPT_PHRASE_ALIASES = {
+  "log in": "authentication",
+  "log on": "authentication",
+  "sign on": "authentication",
+  "forgot password": "authentication",
+  "password reset": "authentication",
+  "reset password": "authentication",
+  "two factor": "authentication",
+  "multi factor": "authentication",
+  "one time": "authentication",
+  "file upload": "file_storage",
+  "bulk download": "file_storage",
+};
+
+const MERGED_PHRASE_TO_CANONICAL = { ...PHRASE_TO_CANONICAL, ...PROMPT_PHRASE_ALIASES };
+
 /** token → canonical key (built from CANONICAL_FEATURES; first writer wins for duplicates) */
 const TOKEN_TO_CANONICAL = Object.create(null);
 for (const [key, def] of Object.entries(CANONICAL_FEATURES)) {
@@ -295,7 +315,7 @@ export function resolveCanonicalKeysFromPhrase(normalizedPhrase) {
   const out = [];
   const seen = new Set();
 
-  const phraseCanon = PHRASE_TO_CANONICAL[key];
+  const phraseCanon = MERGED_PHRASE_TO_CANONICAL[key];
   if (phraseCanon && CANONICAL_FEATURES[phraseCanon]) {
     seen.add(phraseCanon);
     out.push(phraseCanon);
@@ -311,6 +331,64 @@ export function resolveCanonicalKeysFromPhrase(normalizedPhrase) {
   }
 
   return out;
+}
+
+/**
+ * Regex for a multi-word phrase with optional hyphens/apostrophes between words.
+ * @param {string} phrase
+ */
+function phraseBoundaryRegex(phrase) {
+  const parts = String(phrase)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  const body = parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*[-']?\\s*");
+  return new RegExp(`(?:^|[^a-z0-9])${body}(?:[^a-z0-9]|$)`, "i");
+}
+
+const COMPOUND_HINT_RES = [
+  [/\bsignup\b/i, "authentication"],
+  [/\bsignin\b/i, "authentication"],
+  [/\blogout\b/i, "authentication"],
+  [/\bcheckout\b/i, "checkout"],
+  [/\be\s*[-]?\s*mail\b/i, "notifications"],
+];
+
+/**
+ * Catalog keys suggested by raw prompt text (hyphenated compounds, phrases broken
+ * by stop-word removal, adjacent word pairs).
+ * @param {string} rawText
+ * @returns {Set<string>}
+ */
+export function resolveCatalogKeysFromRawPromptText(rawText) {
+  const keys = new Set();
+  const text = String(rawText ?? "");
+  if (!text.trim()) return keys;
+
+  const phrases = Object.keys(MERGED_PHRASE_TO_CANONICAL).sort((a, b) => b.length - a.length);
+  for (const phrase of phrases) {
+    const ck = MERGED_PHRASE_TO_CANONICAL[phrase];
+    if (!CANONICAL_FEATURES[ck]) continue;
+    const re = phraseBoundaryRegex(phrase);
+    if (re && re.test(text)) keys.add(ck);
+  }
+
+  for (const [re, ck] of COMPOUND_HINT_RES) {
+    if (CANONICAL_FEATURES[ck] && re.test(text)) keys.add(ck);
+  }
+
+  const words = text.toLowerCase().match(/[a-z0-9]+(?:'[a-z]+)?/g) || [];
+  for (let i = 0; i < words.length - 1; i++) {
+    const bi = `${words[i]} ${words[i + 1]}`;
+    const seg = normalizeSegment(bi);
+    if (!seg) continue;
+    for (const ck of resolveCanonicalKeysFromPhrase(seg)) {
+      if (CANONICAL_FEATURES[ck]) keys.add(ck);
+    }
+  }
+
+  return keys;
 }
 
 /**
