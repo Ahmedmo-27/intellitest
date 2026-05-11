@@ -8,30 +8,26 @@
 
 <p>
   <a href="https://drive.google.com/file/d/1UP9iwfh7Z4GevF50to298tkthWUM7jLf/view?usp=sharing">
-    <img src="https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Watch%20Video-FF4B4B?style=for-the-badge&logo=googledrive&logoColor=white" alt="Live Demo" />
+    <img src="https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Watch%20Video-FF4B4B?style=flat-square&logo=googledrive&logoColor=white" alt="Live Demo" />
   </a>
   <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
-    <img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install%20Now-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Install on VS Code Marketplace" />
+    <img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install%20Now-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install on VS Code Marketplace" />
   </a>
   <a href="#architecture">
-    <img src="https://img.shields.io/badge/%E2%97%87%20Architecture-View%20Diagram-10B981?style=for-the-badge" alt="View Architecture Diagram" />
+    <img src="https://img.shields.io/badge/%E2%97%87%20Architecture-View%20Diagram-10B981?style=flat-square" alt="View Architecture Diagram" />
   </a>
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Status-Live-22C55E" alt="Status: Live" />
+  <img src="https://img.shields.io/badge/Status-Live-22C55E?style=flat-square" alt="Status: Live" />
   <a href="./LICENSE">
-    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License: MIT" />
   </a>
-</p>
-
-<p>
-  <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white" alt="Node.js" />
-  <img src="https://img.shields.io/badge/Express-000000?logo=express&logoColor=white" alt="Express" />
-  <img src="https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white" alt="MongoDB" />
-  <img src="https://img.shields.io/badge/Groq-F55036?logo=groq&logoColor=white" alt="Groq" />
-  <img src="https://img.shields.io/badge/VS%20Code%20API-007ACC?logo=visualstudiocode&logoColor=white" alt="VS Code API" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" />
+  <img src="https://img.shields.io/badge/MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white" alt="MongoDB" />
+  <img src="https://img.shields.io/badge/Groq-F55036?style=flat-square&logo=groq&logoColor=white" alt="Groq" />
+  <img src="https://img.shields.io/badge/VS%20Code%20API-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="VS Code API" />
 </p>
 
 </div>
