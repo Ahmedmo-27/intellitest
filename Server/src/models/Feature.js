@@ -27,7 +27,6 @@ const FeatureSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// One row per tenant + workspace + canonical feature id
 FeatureSchema.index({ userId: 1, normalizedName: 1, projectId: 1 }, { unique: true });
 
 export const Feature = mongoose.model("Feature", FeatureSchema);

@@ -10,6 +10,7 @@
 import mongoose from "mongoose";
 import { db as dbConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
+import { dropLegacyFeatureRelationshipIndexes } from "./fixLegacyIndexes.js";
 
 export async function connectDB() {
   mongoose.connection.on("connected", () => logger.info("mongodb_connected", { uri: dbConfig.uri }));
@@ -20,6 +21,8 @@ export async function connectDB() {
     serverSelectionTimeoutMS: dbConfig.serverSelectionTimeout,
     socketTimeoutMS: dbConfig.socketTimeout,
   });
+
+  await dropLegacyFeatureRelationshipIndexes();
 }
 
 export async function disconnectDB() {

@@ -4,7 +4,11 @@ import { Router } from "express";
 import * as inteliteController from "../controllers/inteliteController.js";
 import * as testCodeController from "../controllers/testCodeController.js";
 import { generate, analyzeIntent }     from "../controllers/generateController.js";
-import { initProject, syncProject }  from "../controllers/projectController.js";
+import {
+  initProject,
+  syncProject,
+  analyzeFeatureImpact,
+} from "../controllers/projectController.js";
 
 // ── middleware ─────────────────────────────────────────────────────────────────
 import {
@@ -57,6 +61,12 @@ router.get("/project/:projectId/init", initProject);
  * Global Intelligence Graph (Features & Relationships) in MongoDB.
  */
 router.post("/project/:projectId/sync", syncProject);
+
+/**
+ * POST /project/:projectId/feature-impact
+ * Dependency-aware impact / root-cause summary for QA intelligence.
+ */
+router.post("/project/:projectId/feature-impact", analyzeFeatureImpact);
 
 // ── Legacy endpoints (unchanged) ──────────────────────────────────────────────
 // These are kept for backwards compatibility with the current extension.

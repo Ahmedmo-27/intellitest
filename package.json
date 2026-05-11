@@ -42,8 +42,8 @@
       "properties": {
         "debuggo.backendUrl": {
           "type": "string",
-          "default": "https://intellitest-hyvw.onrender.com",
-          "description": "Base URL of the Debuggo API (no trailing slash). Default is the hosted backend; use http://localhost:PORT when running Server locally (match Server/.env PORT)."
+          "default": "http://localhost:3000",
+          "description": "Base URL of the Debuggo API (no trailing slash). Default matches Server/.env PORT (3000). Set https://intellitest-hyvw.onrender.com for the hosted backend."
         }
       }
     },

@@ -501,7 +501,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
-				'Debuggo: set debuggo.backendUrl in Settings (default hosted API: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local server).'
+				'Debuggo: set debuggo.backendUrl in Settings (default: http://localhost:3000; use https://intellitest-hyvw.onrender.com for the hosted API).'
 			);
 			void this.view?.webview.postMessage({ command: 'generationEnded' });
 			return;
@@ -673,25 +673,15 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 					code
 				}
 			});
-
-		const folder = vscode.workspace.workspaceFolders?.[0];
-		if (!folder) {
-			void vscode.window.showWarningMessage(
-				'Debuggo: Test code generated — open the Debuggo panel to copy it. Use a workspace folder next time to auto-save under generated-tests/.'
-			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			notifyError(`Saving generated files failed — ${msg}`);
 			return;
 		}
 
-		try {
-			await this.saveAndOpenTestCode(filename, code);
-			void vscode.window.showInformationMessage(
-				`Debuggo: Test code saved to generated-tests/${filename} (opened in editor).`
-			);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			void this.view?.webview.postMessage({ command: 'testCode', testScript: null });
-			notifyError(`File save failed — ${msg}`);
-		}
+		void vscode.window.showInformationMessage(
+			`Debuggo: Test code saved to generated-tests/${filename} (opened in editor).`
+		);
 	}
 
 	/** Picks a filename based on the detected testing framework. */

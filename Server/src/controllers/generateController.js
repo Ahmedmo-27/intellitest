@@ -21,7 +21,11 @@ import * as projectService from "../services/projectService.js";
 import * as contextService from "../services/contextService.js";
 import * as guardrailService from "../services/guardrailService.js";
 import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
-import { mapPromptToFeatures } from "../services/featureMappingEngine.js";
+import {
+  mapPromptToFeatures,
+  domainMatchedFeatures,
+  mergeRelationshipLists,
+} from "../services/featureMappingEngine.js";
 import { calculateCoverage } from "../services/coverageEngine.js";
 import * as formatter from "../utils/formatter.js";
 import { logTerminalSection, logger } from "../utils/logger.js";
@@ -121,9 +125,8 @@ export async function generate(req, res) {
     // ── Step 2.1: Clean Context ───────────────────────────────────────────────
     const cleanedMap = contextService.cleanContext(enrichedMap);
 
-    // ── Step 2.2: Load Global Intelligence Graph ─────────────────────────────
-    // We no longer build the graph here! It's built globally by /sync.
-    // We just load the existing features from MongoDB to enforce guardrails.
+    // ── Step 2.2: Feature catalog + relationships ─────────────────────────────
+    // Prefer MongoDB (after sync or prior generate); else derive from this request's projectMap.
     let extractedFeatures = [];
     if (userId) {
       extractedFeatures = await projectService.loadFeatures(userId, projectId);
@@ -132,9 +135,26 @@ export async function generate(req, res) {
       extractedFeatures = extractFeatures(projectMap, null);
     }
 
-    // 🔥 FIX: We MUST build the relationships here! Otherwise the E2E related features are thrown away.
-    const relationships = buildFeatureRelationships(extractedFeatures, null);
+    let persistedRelationships = [];
+    if (userId) {
+      persistedRelationships = await projectService.loadFeatureRelationships(userId, projectId);
+    }
+
+    const computedRelationships = buildFeatureRelationships(extractedFeatures, cleanedMap, null);
+    const relationships = mergeRelationshipLists(computedRelationships, persistedRelationships);
     const allowedFeatures = extractedFeatures.map(f => f.name || f.normalizedName);
+
+    // Persist graph edges + features so MongoDB is not only filled by POST /project/:projectId/sync
+    if (userId && extractedFeatures.length > 0) {
+      try {
+        await projectService.syncFeatureIntelligence(userId, projectId, extractedFeatures, computedRelationships);
+      } catch (syncErr) {
+        logger.warn("feature_intelligence_sync_failed", {
+          projectId,
+          message: syncErr.message,
+        });
+      }
+    }
 
     // ── Step 2.5: Guardrail Decision Layer (Feature Intelligence) ─────────────
     const matchResult = mapPromptToFeatures(userPrompt, extractedFeatures, relationships);
@@ -145,13 +165,25 @@ export async function generate(req, res) {
     }
 
     const matchedFeatureNames = matchResult.features.map(f => f.name);
-    const isFlowTest = /flow|e2e|integration|process|end to end/i.test(userPrompt);
 
-    let allowedToFocus = [...matchedFeatureNames];
-    if (isFlowTest) {
-      const relatedFeatureNames = matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name));
-      allowedToFocus = [...new Set([...allowedToFocus, ...relatedFeatureNames])];
-    }
+    const expandedAllowed = guardrailService.expandAllowedFeaturesForGuardrail(
+      allowedFeatures,
+      matchedFeatureNames,
+      relationships,
+      userPrompt,
+    );
+
+    const relatedFeatureNames = matchResult.features.flatMap((f) =>
+      (f.relatedFeatures || []).map((r) => r.name),
+    );
+
+    const restrictLabels = guardrailService.buildRestrictionFeatureLabels(
+      matchedFeatureNames,
+      expandedAllowed,
+      relatedFeatureNames,
+      36,
+    );
+
     const hasCatalog = allowedFeatures.length > 0;
     if (userPrompt.trim().length > 0 && !hasCatalog) {
       decision = "allowed";
@@ -166,23 +198,50 @@ export async function generate(req, res) {
 
     }
 
+    const domainMatches = domainMatchedFeatures(matchedFeatureNames);
+
     logger.info("feature_mapping", {
       event: "feature_mapping",
       prompt: userPrompt,
       extractedFeatures: allowedFeatures,
       matchedFeatures: matchedFeatureNames,
+      domainMatches,
       relatedFeatures: matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name)),
       coverage: coverageMap,
       confidence: matchResult.confidence,
       decision: decision === "none" ? "fallback" : decision
     });
 
-    // When we *do* have a catalog but nothing matched the prompt, return structured fallback instead of bogus empty testCases.
+    const catalogDomainHints = domainMatchedFeatures(allowedFeatures);
+
+    // When we *do* have a catalog but nothing matched the prompt, return a clear message — no LLM, no test cases.
     if (decision === "none" && userPrompt.trim().length > 0 && hasCatalog) {
       return res.json({
+        message:
+          "No feature in this project matches your prompt. Refine what you want to test, or pick an area that exists in your codebase.",
         warning: "Feature not found",
-        suggestions: matchResult.suggestions || ["product", "collection"],
-        action: "fallback",
+        suggestions: matchResult.suggestions?.length
+          ? matchResult.suggestions
+          : catalogDomainHints.slice(0, 10),
+        action: "feature_not_found",
+        features: [],
+        testCases: [],
+      });
+    }
+
+    // Prompt only hit generic paths (e.g. `tests/`) — not a real domain feature.
+    if (
+      userPrompt.trim().length > 0 &&
+      hasCatalog &&
+      matchedFeatureNames.length > 0 &&
+      domainMatches.length === 0
+    ) {
+      return res.json({
+        message:
+          "Your prompt does not match a concrete feature in this project (only generic folders such as tests matched). Describe a product or API area that appears in your codebase.",
+        warning: "No domain feature match",
+        suggestions: catalogDomainHints.length ? catalogDomainHints.slice(0, 10) : allowedFeatures.slice(0, 10),
+        action: "no_domain_match",
         features: [],
         testCases: [],
       });
@@ -191,7 +250,7 @@ export async function generate(req, res) {
     // ── Step 3: Build prompt ──────────────────────────────────────────────────
     let restrictInstruction = "";
     if (decision === "partial") {
-      restrictInstruction = `Ignore non-existent features. Focus only on available matched features: ${allowedToFocus.join(", ")}.`;
+      restrictInstruction = `Ignore non-existent features. Focus on these areas (and closely related flows): ${restrictLabels.join(", ")}.`;
     }
 
     // 🔥 FIX: Create a strict map from the incoming payload so we don't bloat the LLM
@@ -211,12 +270,12 @@ export async function generate(req, res) {
 
       // POST-AI Validation: Validate context alignment
       const parsed = formatter.parseTestCasesArray(raw);
-      const validationResult = guardrailService.validateAIOutput(parsed, allowedFeatures);
+      const validationResult = guardrailService.validateAIOutput(parsed, expandedAllowed);
 
       if (validationResult.decision === "warning") {
         logger.warn("guardrail_hallucination", {
           event: "validation",
-          allowedFeatures,
+          allowedFeatures: expandedAllowed,
           detectedTerms: validationResult.detectedTerms,
           invalidTerms: validationResult.invalidTerms,
           decision: validationResult.decision
@@ -232,7 +291,7 @@ export async function generate(req, res) {
 
     rawAiOutput = await complete(aiPrompt, {
       validator: trackingValidator,
-      correctionPrompt: `The previous response hallucinated features. STRICTLY limit your tags and test targets to these known features: [${allowedFeatures.join(", ")}].\n\n`,
+      correctionPrompt: `The previous response hallucinated features. STRICTLY limit your tags and test targets to these known features: [${expandedAllowed.join(", ")}].\n\n`,
       maxRetries: 1 // Limit retries to 1
     });
     retryCount = Math.max(0, callCount - 1); // attempt 0 = first call
@@ -278,20 +337,30 @@ export async function generate(req, res) {
 
     // ── Step 8: Upsert coverage & returned features ───────────────────────────
     const returnedFeatures = [];
-    if (userId && testCases.length > 0) {
-      const coverageResults = matchedFeatureNames.map(f => calculateCoverage(f, testCases));
+    if (userId && testCases.length > 0 && matchedFeatureNames.length > 0) {
+      const coverageResults = matchedFeatureNames.map((featureName) => {
+        const cov = calculateCoverage(featureName, testCases);
+        return {
+          feature: featureName,
+          testCaseCount: testCases.length,
+          estimatedCoverage: cov.coverage,
+          missingAreas: cov.missingAreas,
+        };
+      });
       await projectService.upsertFeatureCoverage(userId, projectId, coverageResults);
 
-      for (const cov of coverageResults) {
-        const featureObj = extractedFeatures.find(f => f.normalizedName === cov.feature);
-        const matchFeat = matchResult.features.find(f => f.name === cov.feature);
+      for (let i = 0; i < coverageResults.length; i++) {
+        const cov = coverageResults[i];
+        const featureName = cov.feature;
+        const featureObj = extractedFeatures.find((f) => f.normalizedName === featureName);
+        const matchFeat = matchResult.features.find((f) => f.name === featureName);
         returnedFeatures.push({
           name: featureName,
           files: featureObj ? featureObj.files : [],
-          relatedFeatures: matchFeat ? matchFeat.relatedFeatures.map(r => r.name) : [],
+          relatedFeatures: matchFeat ? matchFeat.relatedFeatures.map((r) => r.name) : [],
           coverage: cov.estimatedCoverage,
           confidence: matchFeat ? matchFeat.confidence : 0,
-          missingTestAreas: cov.missingAreas
+          missingTestAreas: cov.missingAreas,
         });
       }
     }
@@ -357,50 +426,91 @@ export async function generate(req, res) {
 export async function analyzeIntent(req, res) {
   try {
     const { prompt, projectId, files } = req.body;
-    if (!prompt) return res.json({ decision: "none", matchedFeatures: [], relatedFeatures: [], relevantFiles: [] });
-
-    // We create a mock projectMap to run feature extraction on the lightweight file list.
-    // 🔥 FIX: We pass 'null' instead of projectId to explicitly bypass the backend cache.
-    // This ensures that if the user just created a new file in VS Code 2 seconds ago,
-    // the intent analyzer will instantly know about it without needing a "Reset Cache" button!
-    const mockMap = { files: files || [] };
-    const extractedFeatures = extractFeatures(mockMap, null);
-    const relationships = buildFeatureRelationships(extractedFeatures, null);
-
-    const matchResult = mapPromptToFeatures(prompt, extractedFeatures, relationships);
-
-    // Collect all relevant files from matched and related features
-    const relevantFilesSet = new Set();
-    const matchedFeatureNames = matchResult.features.map(f => f.name);
-
-    for (const mf of matchResult.features) {
-      if (mf.files) mf.files.forEach(f => relevantFilesSet.add(f));
+    if (!prompt) {
+      return res.json({
+        decision: "none",
+        matchedFeatures: [],
+        relatedFeatures: [],
+        relevantFiles: [],
+        suggestions: [],
+        isFlowTest: false,
+      });
     }
 
-    // Detect if the user wants an E2E/Flow test (Chain Command Awareness)
-    const isFlowTest = /flow|e2e|integration|process|end to end/i.test(prompt);
-    const relatedFeatureNames = matchResult.features.flatMap(f => f.relatedFeatures.map(r => r.name));
+    const userId = req.userId || req.user?.id;
 
-    // If it's a flow test, we traverse the dependency graph and pull in the whole chain!
+    // Prefer MongoDB feature graph (same as POST /generate) when the user is signed in.
+    let extractedFeatures = [];
+    if (userId && projectId) {
+      extractedFeatures = await projectService.loadFeatures(userId, projectId);
+    }
+    if (extractedFeatures.length === 0) {
+      const mockMap = { files: files || [] };
+      extractedFeatures = extractFeatures(mockMap, null);
+    }
+
+    let persistedRelationships = [];
+    if (userId && projectId) {
+      persistedRelationships = await projectService.loadFeatureRelationships(userId, projectId);
+    }
+    const relationships = mergeRelationshipLists(
+      buildFeatureRelationships(extractedFeatures, { files: files || [] }, null),
+      persistedRelationships,
+    );
+    const matchResult = mapPromptToFeatures(prompt, extractedFeatures, relationships);
+
+    const catalogNames = extractedFeatures.map((f) => f.name || f.normalizedName);
+    const matchedFeatureNames = matchResult.features.map((f) => f.name);
+    const domainMatches = domainMatchedFeatures(matchedFeatureNames);
+    const catalogDomainHints = domainMatchedFeatures(catalogNames);
+
+    // No real domain feature matched — align with /generate (skip expensive mapping).
+    if (prompt.trim() && extractedFeatures.length > 0 && domainMatches.length === 0) {
+      const hintList = catalogDomainHints.length ? catalogDomainHints : catalogNames;
+      return res.json({
+        decision: "none",
+        matchedFeatures: [],
+        relatedFeatures: [],
+        relevantFiles: [],
+        isFlowTest: false,
+        suggestions: hintList.slice(0, 10),
+      });
+    }
+
+    let suggestions =
+      matchResult.suggestions?.length
+        ? matchResult.suggestions
+        : catalogDomainHints.slice(0, 10);
+    if (!suggestions.length) {
+      suggestions = catalogNames.slice(0, 10);
+    }
+
+    const relevantFilesSet = new Set();
+
+    for (const mf of matchResult.features) {
+      if (mf.files) mf.files.forEach((f) => relevantFilesSet.add(f));
+    }
+
+    const isFlowTest = /flow|e2e|integration|process|end to end/i.test(prompt);
+    const relatedFeatureNames = matchResult.features.flatMap((f) =>
+      f.relatedFeatures.map((r) => r.name),
+    );
+
     if (isFlowTest) {
       for (const rf of relatedFeatureNames) {
-        const feat = extractedFeatures.find(f => f.normalizedName === rf);
+        const feat = extractedFeatures.find((f) => f.normalizedName === rf);
         if (feat && feat.files) {
-          // 🔥 FIX: Instead of an arbitrary slice(0, 5), we intelligently rank the files.
-          // We prioritize files that are likely the "core" of the dependency (services, controllers, 
-          // or files that directly contain the feature name).
           const allFiles = Array.from(feat.files);
 
-          const coreFiles = allFiles.filter(f =>
-            f.toLowerCase().includes(rf) ||
-            /service|controller|api|route|index/i.test(f)
+          const coreFiles = allFiles.filter(
+            (f) =>
+              f.toLowerCase().includes(rf) ||
+              /service|controller|api|route|index/i.test(f),
           );
 
-          // Fallback to other files if we didn't find clear "core" files
           const finalFiles = coreFiles.length > 0 ? coreFiles : allFiles;
 
-          // Cap at 10 to protect the parser, but now we know we have the most important ones.
-          finalFiles.slice(0, 10).forEach(f => relevantFilesSet.add(f));
+          finalFiles.slice(0, 10).forEach((f) => relevantFilesSet.add(f));
         }
       }
     }
@@ -410,8 +520,8 @@ export async function analyzeIntent(req, res) {
       matchedFeatures: matchedFeatureNames,
       relatedFeatures: relatedFeatureNames,
       relevantFiles: Array.from(relevantFilesSet),
-      isFlowTest: isFlowTest,
-      suggestions: matchResult.suggestions || []
+      isFlowTest,
+      suggestions,
     });
   } catch (err) {
     logger.error("analyze_intent_failed", { message: err.message });

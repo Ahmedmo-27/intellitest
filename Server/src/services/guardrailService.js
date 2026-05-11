@@ -6,10 +6,128 @@
 const STOP_WORDS = new Set(["the", "to", "a", "of", "and", "in", "on", "for", "with", "is", "at", "by", "from", "an", "this", "that", "it"]);
 
 const SYNONYMS = {
-  "add": ["create", "insert"],
-  "cart": ["basket"],
-  "order": ["checkout", "purchase"]
+  add: ["create", "insert"],
+  cart: ["basket"],
+  order: ["checkout", "purchase"],
+  checkout: ["order", "purchase"],
+  purchase: ["order", "checkout"],
 };
+
+/**
+ * Tag vocabulary for validation: matched features + prompt-relevant catalog overlap + graph neighbors
+ * + commerce stems. Does NOT dump the entire extracted catalog (avoids megabyte prompts / false retries).
+ *
+ * @param {string[]} allowedFeatures — full catalog from extraction / DB (used for overlap only)
+ * @param {string[]} matchedFeatureNames — prompt-matched features
+ * @param {object[]} relationships — { source, target, type }
+ * @param {string} userPrompt
+ * @returns {string[]}
+ */
+export function expandAllowedFeaturesForGuardrail(
+  allowedFeatures,
+  matchedFeatureNames,
+  relationships,
+  userPrompt = "",
+) {
+  const out = new Set();
+
+  const seeds = new Set(
+    (Array.isArray(matchedFeatureNames) ? matchedFeatureNames : []).map((x) =>
+      String(x).toLowerCase().trim(),
+    ).filter(Boolean),
+  );
+
+  for (const s of seeds) out.add(s);
+
+  const META_PROMPT_TOKENS = new Set([
+    "test",
+    "tests",
+    "spec",
+    "server",
+    "generated",
+    "src",
+    "flow",
+    "process",
+  ]);
+  const promptTokens = normalize(userPrompt).filter(
+    (t) => t.length >= 3 && !META_PROMPT_TOKENS.has(t),
+  );
+  const catalog = Array.isArray(allowedFeatures) ? allowedFeatures : [];
+  let overlapAdded = 0;
+  const MAX_OVERLAP = 14;
+  for (const name of catalog) {
+    if (overlapAdded >= MAX_OVERLAP) break;
+    const nl = String(name).toLowerCase().trim();
+    if (!nl || nl.length > 52) continue;
+    for (const pt of promptTokens) {
+      if (nl.includes(pt) || pt.includes(nl)) {
+        out.add(nl);
+        overlapAdded++;
+        break;
+      }
+    }
+  }
+
+  for (const r of relationships || []) {
+    const src = String(r.source ?? "").toLowerCase().trim();
+    const tgt = String(r.target ?? "").toLowerCase().trim();
+    if (!src || !tgt) continue;
+    if (seeds.has(src)) {
+      out.add(tgt);
+    }
+    if (seeds.has(tgt)) {
+      out.add(src);
+    }
+  }
+
+  const prompt = String(userPrompt ?? "").toLowerCase();
+  const commercePrompt =
+    /\b(order|checkout|cart|payment|purchase|shop|e-?commerce|shipping|search)\b/i.test(prompt) ||
+    [...seeds].some((x) => /\b(order|checkout|cart|payment|product)\b/i.test(x));
+
+  if (commercePrompt) {
+    [
+      "cart",
+      "checkout",
+      "order",
+      "orders",
+      "payment",
+      "products",
+      "product",
+      "shipping",
+      "address",
+      "validation",
+      "search",
+    ].forEach((b) => out.add(b));
+  }
+
+  return [...out];
+}
+
+/**
+ * Compact, ordered label list for LLM “focus on these features” instructions (token budget).
+ */
+export function buildRestrictionFeatureLabels(matchedFeatureNames, expandedAllowed, relatedNames, maxItems = 36) {
+  const metaNoise = /^(tests?|generated|spec\.?js|babel|eslint|vite|tsconfig|package)/i;
+  const ordered = [];
+  const seen = new Set();
+
+  const push = (label) => {
+    const s = String(label ?? "").trim();
+    if (!s || s.length > 52) return;
+    const k = s.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    ordered.push(s);
+  };
+
+  for (const m of matchedFeatureNames || []) push(m);
+  for (const r of relatedNames || []) push(r);
+  for (const x of expandedAllowed || []) push(x);
+
+  const filtered = ordered.filter((x) => !metaNoise.test(x) || matchedFeatureNames?.includes(x));
+  return filtered.slice(0, maxItems);
+}
 
 /**
  * Normalizes text by converting to lowercase, splitting camelCase,
@@ -215,7 +333,11 @@ export function validateAIOutput(testCases, allowedFeatures) {
   
   const IGNORE_TERMS = new Set([
     "create", "creation", "add", "adding",
-    "update", "delete", "flow", "process"
+    "update", "delete", "flow", "process",
+    "multiple",
+    "items",
+    "item",
+    "summary",
   ]);
 
   for (const tc of testCases) {
@@ -225,7 +347,22 @@ export function validateAIOutput(testCases, allowedFeatures) {
         const tagLower = tag.toLowerCase().trim();
         detectedTerms.add(tagLower);
         
-        const isGeneric = ["auth", "api", "ui", "edge-case", "happy-path", "error-handling", "backend", "frontend", "database"].includes(tagLower);
+        const isGeneric = [
+          "auth",
+          "api",
+          "ui",
+          "edge-case",
+          "happy-path",
+          "error-handling",
+          "backend",
+          "frontend",
+          "database",
+          "summary",
+          "smoke",
+          "regression",
+          "e2e",
+          "sanity",
+        ].includes(tagLower);
         
         if (!isGeneric && !IGNORE_TERMS.has(tagLower)) {
           let isKnown = false;
