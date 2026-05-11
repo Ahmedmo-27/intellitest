@@ -1,0 +1,92 @@
+.landing-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: #f7f7fb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 24px 24px 12px;
+    flex-wrap: wrap;
+}
+
+.brand-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: #0f172a;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.brand-logo {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    flex: 0 0 auto;
+}
+
+.brand-name {
+    font-size: 1.1rem;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.header-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 18px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 700;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.header-button:hover {
+    transform: translateY(-1px);
+}
+
+.header-button--secondary {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.header-button--secondary:hover {
+    background: #f8fafc;
+}
+
+.header-button--primary {
+    background: linear-gradient(135deg, #3b82f6 0%, #4f46e5 52%, #7c3aed 100%);
+    color: #ffffff;
+    box-shadow: 0 12px 28px rgba(79, 70, 229, 0.28);
+}
+
+.header-button--primary:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #4338ca 52%, #6d28d9 100%);
+}
+
+@media (max-width: 800px) {
+    .landing-header {
+        padding: 20px 20px 12px;
+    }
+
+    .header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}

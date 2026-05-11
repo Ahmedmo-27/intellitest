@@ -49,9 +49,15 @@ export function generateTestCasesPrompt(projectMap, matchResult, restrictInstruc
 
   const restrictions = restrictInstruction ? `\n\nCRITICAL SCOPE RESTRICTION:\n${restrictInstruction}\n` : "";
 
+  // Detect if the user wants an E2E/Flow test from the prompt
+  const isFlowTest = projectMap.prompt && /flow|e2e|integration|process|end to end/i.test(projectMap.prompt);
+  const taskDescription = isFlowTest
+    ? "Propose comprehensive end-to-end (e2e) test cases that cover critical user flows and integrations for this system."
+    : "Propose manual test cases that cover critical user flows and edge cases for this system.";
+
   return `You are a senior QA engineer. ${ctx}${priorityCtx}${testerAsk}${restrictions}
 
-Task: Propose manual test cases that cover critical user flows and edge cases for this system.
+Task: ${taskDescription}
 
 Rules:
 - Output ONLY valid JSON (no markdown, no commentary).

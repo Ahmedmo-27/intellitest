@@ -1,0 +1,118 @@
+<div class="demo-container">
+    <h1>Try IntelliTest <span>Yourself.</span></h1>
+    <p class="subtitle">Generate test cases for your code using AI</p>
+
+    <form [formGroup]="demoForm" class="demo-form">
+        <!-- Step 1: Select Language and Framework -->
+        <div class="form-section">
+            <h2>Step 1: Select Your Stack</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="language">Programming Language:</label>
+                    <select id="language" formControlName="language">
+                        <option value="">-- Select Language --</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="python">Python</option>
+                        <option value="java">Java</option>
+                        <option value="typescript">TypeScript</option>
+                        <option value="csharp">C#</option>
+                        <option value="go">Go</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="framework">Testing Framework:</label>
+                    <select id="framework" formControlName="framework">
+                        <option value="">-- Select Framework --</option>
+                        <option value="jest">Jest</option>
+                        <option value="mocha">Mocha</option>
+                        <option value="vitest">Vitest</option>
+                        <option value="pytest">Pytest</option>
+                        <option value="junit">JUnit</option>
+                        <option value="unittest">Unittest</option>
+                        <option value="xunit">xUnit</option>
+                        <option value="testng">TestNG</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Input Code -->
+        <div class="form-section">
+            <h2>Step 2: Paste Your Function</h2>
+            <div class="form-group">
+                <label for="codeInput">Function Code:</label>
+                <textarea id="codeInput" formControlName="codeInput" placeholder="Paste your function code here..." rows="8"></textarea>
+            </div>
+        </div>
+
+        <!-- Step 3: Enter Prompt -->
+        <div class="form-section">
+            <h2>Step 3: Describe What to Test</h2>
+            <div class="form-group">
+                <label for="promptInput">Test Prompt:</label>
+                <textarea id="promptInput" formControlName="promptInput"
+                    placeholder="e.g., Test edge cases like null values, negative numbers, and empty strings. Include boundary testing."
+                    rows="4"></textarea>
+            </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="button-group">
+            <button type="button" class="btn btn-primary" (click)="generateTestCases()">
+                Generate Test Cases
+            </button>
+            <button type="button" class="btn btn-secondary" [disabled]="generatedTestCases.length === 0" (click)="generateTestCode()">
+                Generate Test Code
+            </button>
+        </div>
+    </form>
+
+    <!-- Results Section -->
+    <div class="results-section" *ngIf="generatedTestCases.length > 0 || testCodeScript || errorMessage">
+        <h2>Results</h2>
+
+        <!-- Test Cases Display -->
+        <div class="result-box" *ngIf="generatedTestCases.length > 0 && !testCodeScript && !errorMessage">
+            <h3>Generated Test Cases</h3>
+            <div class="output-content">
+                <table class="test-cases-table">
+                    <thead><tr><th>Test Case</th><th>Description</th><th>Expected Result</th></tr></thead>
+                    <tbody>
+                        <tr *ngFor="let testCase of generatedTestCases; let i = index">
+                            <td>#{{i + 1}}</td>
+                            <td><strong>{{testCase.name || 'Test Case'}}</strong><br>{{testCase.steps}}</td>
+                            <td>{{testCase.expected || 'N/A'}}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Test Code Display -->
+        <div class="result-box" *ngIf="testCodeScript && !errorMessage">
+            <h3>Generated Test Code</h3>
+            <div class="output-content">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="framework-badge">{{testCodeScript.framework || 'Code'}}</span>
+                    </div>
+                    <pre><code>{{testCodeScript.code}}</code></pre>
+                </div>
+            </div>
+            <button type="button" class="btn btn-secondary" style="margin-top: 10px;" (click)="copyCode()">Copy Code</button>
+        </div>
+
+        <!-- Error Display -->
+        <div class="result-box error" *ngIf="errorMessage">
+            <h3>Error</h3>
+            <p>{{errorMessage}}</p>
+        </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div class="loading" *ngIf="isLoading" style="display: flex;">
+        <div class="spinner"></div>
+        <p>{{loadingMessage}}</p>
+    </div>
+</div>

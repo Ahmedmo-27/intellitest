@@ -1,0 +1,1 @@
+{"version":3,"file":"landing.js","sourceRoot":"","sources":["landing.ts"],"names":[],"mappings":";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA,wCAA6D;AAC7D,uCAAoC;IASvB,OAAO;4BAPnB,IAAA,gBAAS,EAAC;YACT,QAAQ,EAAE,aAAa;YACvB,OAAO,EAAE,CAAC,WAAI,CAAC;YACf,WAAW,EAAE,gBAAgB;YAC7B,QAAQ,EAAE,eAAe;YACzB,aAAa,EAAE,wBAAiB,CAAC,IAAI;SACtC,CAAC;;;;;;;;YACF,6KAAuB;;;YAAV,uDAAO;;;;;AAAP,0BAAO"}
