@@ -2,7 +2,7 @@
 
 <img src="./media/Debuggo-Logo.png" width="220" alt="Debuggo — Smart QA, better software" />
 
-<h1>Debuggo</h1>
+---
 
 <p><strong>AI-powered VS Code extension for test design — generates IEEE-style test cases, runnable test scripts, and one-click Excel reports from your real codebase. Context-aware, framework-detecting, guest-friendly.</strong></p>
 
