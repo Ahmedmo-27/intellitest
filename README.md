@@ -1,5 +1,9 @@
 # Debuggo
 
+<p align="center">
+  <img src="./media/Debuggo%20-%20Logo.png" width="520" alt="Debuggo — Smart QA, better software" />
+</p>
+
 AI-powered VS Code extension for generating structured software test cases.
 
 Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
