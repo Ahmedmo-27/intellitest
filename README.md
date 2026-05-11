@@ -1,43 +1,106 @@
-# Debuggo
+<div align="center">
 
-<p align="center">
-  <img src="./media/Debuggo-Logo.png" width="520" alt="Debuggo — Smart QA, better software" />
+<img src="./media/Debuggo-Logo.png" width="220" alt="Debuggo — Smart QA, better software" />
+
+<h1>Debuggo</h1>
+
+<p><strong>AI-powered VS Code extension for generating structured software test cases — from your real project context.</strong></p>
+
+<p>
+  <a href="https://drive.google.com/file/d/1UP9iwfh7Z4GevF50to298tkthWUM7jLf/view?usp=sharing">
+    <img src="https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Watch%20Video-FF4B4B?style=for-the-badge&logo=googledrive&logoColor=white" alt="Live Demo" />
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
+    <img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install%20Now-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Install on VS Code Marketplace" />
+  </a>
 </p>
 
-AI-powered VS Code extension for generating structured software test cases.
+<p>
+  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
+    <img src="https://img.shields.io/visual-studio-marketplace/v/IntelliTest.debuggo?label=Version&color=007ACC&logo=visualstudiocode&logoColor=white" alt="Marketplace Version" />
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
+    <img src="https://img.shields.io/visual-studio-marketplace/i/IntelliTest.debuggo?label=Installs&color=007ACC" alt="Installs" />
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">
+    <img src="https://img.shields.io/visual-studio-marketplace/r/IntelliTest.debuggo?label=Rating&color=007ACC" alt="Rating" />
+  </a>
+  <img src="https://img.shields.io/badge/Status-Live-22C55E" alt="Status: Live" />
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
+</p>
 
-Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with project context (detected stack and codebase file context), shows results in a table preview, recommends a testing framework, and supports Excel export.
+<p>
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white" alt="Node.js" />
+  <img src="https://img.shields.io/badge/Express-000000?logo=express&logoColor=white" alt="Express" />
+  <img src="https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white" alt="MongoDB" />
+  <img src="https://img.shields.io/badge/Groq-F55036?logo=groq&logoColor=white" alt="Groq" />
+  <img src="https://img.shields.io/badge/VS%20Code%20API-007ACC?logo=visualstudiocode&logoColor=white" alt="VS Code API" />
+</p>
+
+</div>
 
 ---
 
-## Important: local API server
+## Overview
 
-To use **your own** Groq key, MongoDB, and quotas, run the **`Server`** on your machine—not the hosted Render deployment.
+Debuggo is a VS Code sidebar extension that helps developers and testers generate clean, structured test cases using an external AI model. It combines the user prompt with **real project context** (detected tech stack, AST-derived code insights, and codebase file map), shows results in a table preview, recommends a testing framework, and supports **Excel export**.
 
-1. **Install dependencies (two places)**  
-   - From the **repository root**: `npm install` (extension build / VS Code tooling).  
-   - From **`Server/`**: `cd Server` then `npm install` (Express API).
+> Unlike generic chat tools, Debuggo **reads your project** before it writes a single test — so the cases it produces reference functions and parameters that actually exist.
 
-2. **Configure the server**  
-   Copy `Server/.env.example` → **`Server/.env`**, then set **`MONGODB_URI`**, **`JWT_SECRET`**, **`LLM_PROVIDER=api`**, and **`API_KEY`** or **`GROQ_API_KEY`** (and **`API_MODEL`** if you change the model).
+## Quick Links
 
-3. **Start the API**  
-   ```bash
-   cd Server
-   npm run dev
-   ```  
-   (`dev` runs the server with **Node `--watch`**; use **`npm start`** if you prefer a single run without watch.) Default HTTP port is **`3000`** (see **`PORT`** in `Server/.env`).
+- ▶ **[Watch the live demo video](https://drive.google.com/file/d/1UP9iwfh7Z4GevF50to298tkthWUM7jLf/view?usp=sharing)**
+- 🛒 **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo)**
+- 📦 **Publisher:** [IntelliTest](https://marketplace.visualstudio.com/publishers/IntelliTest)
+- 🐛 **[Report an issue](https://github.com/mohamedelziat50/intellitest/issues)**
 
-4. **Point the extension at localhost (`package.json` only — no VS Code Settings UI)**  
-   Open **`package.json`** at the repo root → **`contributes`** → **`configuration`** → **`properties`** → **`debuggo.backendUrl`**, and set:
-   ```json
-   "default": "http://localhost:3000"
-   ```
-   Use the same host/port as your running Server (no trailing slash; match **`PORT`** in `Server/.env` if it is not `3000`).
+## Table of Contents
 
-   **Do not `git commit` or `git push` this change.** Revert `default` back to the hosted Render URL (`https://intellitest-hyvw.onrender.com`) before you push, so GitHub CI / deployments and everyone else cloning the repo do not inherit a localhost-only backend and fail. Same rule for any fork you open PRs against: **local edit only**.
+- [Install](#install)
+- [Features](#features)
+- [How It Works](#how-it-works)
+- [Self-host the API (local server)](#self-host-the-api-local-server)
+- [Project Structure](#project-structure)
+- [Codebase Content Reading Feature](#codebase-content-reading-feature)
+- [AI Integration](#ai-integration)
+- [Excel Export](#excel-export)
+- [Configuration](#configuration)
+- [Sidebar Authentication](#sidebar-authentication)
+- [How to Test (auth + generation)](#how-to-test-auth--generation)
+- [Development Notes](#development-notes)
 
-   Leaving `default` as the **hosted** URL means the extension talks to **Render** (`Server/.env` on your laptop is unused for those requests—you share that deployment’s Groq org and quotas).
+---
+
+## Install
+
+### Option 1 — From the VS Code Marketplace (recommended)
+
+1. Open VS Code → **Extensions** (`Ctrl+Shift+X`)
+2. Search for **`Debuggo`** by **IntelliTest**
+3. Click **Install**
+4. Open the **Debuggo** icon in the activity bar to launch the sidebar
+
+Or install directly via the command palette (`Ctrl+P`):
+
+```
+ext install IntelliTest.debuggo
+```
+
+Or from a terminal:
+
+```bash
+code --install-extension IntelliTest.debuggo
+```
+
+That's it — the shipped default backend URL points to the hosted API, so you can start generating immediately.
+
+### Option 2 — Run from source (for contributors)
+
+1. Clone the repository.
+2. Install dependencies: `npm install`
+3. Open the project in VS Code.
+4. Press `F5` to run the extension in an Extension Development Host window.
 
 ---
 
@@ -52,21 +115,48 @@ To use **your own** Groq key, MongoDB, and quotas, run the **`Server`** on your 
 - Excel export functionality
 - Clean VS Code–native styling (theme tokens via `webview/debuggo.css`)
 
-## Demo / Preview
+## How It Works
 
-Add screenshots here:
+1. User enters a prompt in the Debuggo sidebar.
+2. Extension detects the project tech stack.
+3. **Codebase is scanned**: Static analysis extracts functions, classes, and variables from JS/TS files using the TypeScript Compiler API.
+4. **Code context is built**: Project structure (routes, modules), code symbols, and detected priority files are packaged into a structured payload.
+5. Request is sent to AI (Groq or configured OpenAI-compatible API) with prompt + comprehensive project context.
+6. AI returns structured JSON test cases.
+7. Results are displayed in the sidebar table preview with optional Excel export.
 
-- Sidebar overview
-- Generated test case table preview
-- Export success flow
+---
 
-## Installation
+## Self-host the API (local server)
 
-1. Clone the repository.
-2. Install dependencies:
-   `npm install`
-3. Open the project in VS Code.
-4. Press `F5` to run the extension in an Extension Development Host window.
+To use **your own** Groq key, MongoDB, and quotas, run the **`Server`** on your machine—not the hosted Render deployment.
+
+1. **Install dependencies (two places)**
+   - From the **repository root**: `npm install` (extension build / VS Code tooling).
+   - From **`Server/`**: `cd Server` then `npm install` (Express API).
+
+2. **Configure the server**
+   Copy `Server/.env.example` → **`Server/.env`**, then set **`MONGODB_URI`**, **`JWT_SECRET`**, **`LLM_PROVIDER=api`**, and **`API_KEY`** or **`GROQ_API_KEY`** (and **`API_MODEL`** if you change the model).
+
+3. **Start the API**
+   ```bash
+   cd Server
+   npm run dev
+   ```
+   (`dev` runs the server with **Node `--watch`**; use **`npm start`** if you prefer a single run without watch.) Default HTTP port is **`3000`** (see **`PORT`** in `Server/.env`).
+
+4. **Point the extension at localhost (`package.json` only — no VS Code Settings UI)**
+   Open **`package.json`** at the repo root → **`contributes`** → **`configuration`** → **`properties`** → **`debuggo.backendUrl`**, and set:
+   ```json
+   "default": "http://localhost:3000"
+   ```
+   Use the same host/port as your running Server (no trailing slash; match **`PORT`** in `Server/.env` if it is not `3000`).
+
+   **Do not `git commit` or `git push` this change.** Revert `default` back to the hosted Render URL (`https://intellitest-hyvw.onrender.com`) before you push, so GitHub CI / deployments and everyone else cloning the repo do not inherit a localhost-only backend and fail. Same rule for any fork you open PRs against: **local edit only**.
+
+   Leaving `default` as the **hosted** URL means the extension talks to **Render** (`Server/.env` on your laptop is unused for those requests—you share that deployment's Groq org and quotas).
+
+---
 
 ## Project Structure
 
@@ -131,16 +221,6 @@ Key files and folders:
   - Context file for AI tools and coding assistants.
 
 Note: If you prefer naming like `webview/index.html`, `webview/script.js`, `webview/style.css`, this project currently uses `debuggo.html`, `debuggo.js`, and `debuggo.css` with the same roles.
-
-## How It Works
-
-1. User enters a prompt in the Debuggo sidebar.
-2. Extension detects the project tech stack.
-3. **Codebase is scanned**: Static analysis extracts functions, classes, and variables from JS/TS files using the TypeScript Compiler API.
-4. **Code context is built**: Project structure (routes, modules), code symbols, and detected priority files are packaged into a structured payload.
-5. Request is sent to AI (Groq or configured OpenAI-compatible API) with prompt + comprehensive project context.
-6. AI returns structured JSON test cases.
-7. Results are displayed in the sidebar table preview with optional Excel export.
 
 ## Codebase Content Reading Feature
 
@@ -395,7 +475,7 @@ For local VS Code debugging, `.vscode/launch.json` can load environment variable
 
 The **extension sidebar** is separate from any **browser** demo under `website/`.
 
-1. The extension must reach a running API URL. The shipped default lives in **`package.json`** (`debuggo.backendUrl` under `contributes.configuration.properties`). For a **local** Server, temporarily set that **`default`** to `http://localhost:3000` as in **Important: local API server** (and **do not push** that edit). Without a reachable URL, generation stays disabled.
+1. The extension must reach a running API URL. The shipped default lives in **`package.json`** (`debuggo.backendUrl` under `contributes.configuration.properties`). For a **local** Server, temporarily set that **`default`** to `http://localhost:3000` as in **Self-host the API (local server)** (and **do not push** that edit). Without a reachable URL, generation stays disabled.
 2. Open the Debuggo sidebar: the **full workspace UI** is visible (**guest-first**). Use header **Sign in** to open the optional **Account** card (Log in / Sign up). Close with **×**, **Escape**, or automatically after a successful login.
 3. Signing in is **optional**: guests can generate when the backend is reachable. After login, JWT is stored in VS Code SecretStorage (`intellitest.authJwt`); restart keeps you signed in until **Log out**, token expiry (`JWT_EXPIRES_IN`, often 7 days), or server rejection (401).
 
@@ -406,7 +486,7 @@ The header shows **Sign in** when logged out and **Log out** when authenticated;
 1. **MongoDB**: Run a local MongoDB instance (or Atlas URI) matching `Server/.env`.
 2. **Server**: From the repo root, `cd Server && npm install && npm start` (or your process manager).
 3. **Extension host**: From the repo root, `npm install && npm run compile`, then press **F5** in VS Code with the extension project open (**Run Extension**).
-4. In the Extension Development Host, the backend URL comes from **`package.json`**’s **`debuggo.backendUrl` `default`** (see step 4 under **Important: local API server**). For localhost, edit that field locally—**do not commit/push**.
+4. In the Extension Development Host, the backend URL comes from **`package.json`**'s **`debuggo.backendUrl` `default`** (see step 4 under **Self-host the API (local server)**). For localhost, edit that field locally—**do not commit/push**.
 5. **Sign up** (optional): Open **Sign in** → **Sign up**, then name (if shown), email, and password ≥ 8 characters. On success the Account panel closes and header shows **Log out** (`init`, code insights, etc. behave as authenticated).
 6. **Persistence**: Reload (**Developer: Reload Window**) or restart the host; with a valid JWT you should reopen the sidebar still signed in (header **Log out**).
 7. **Log out**: Click **Log out**; JWT is cleared and **Sign in** returns — main generator UI stays available for guests when backend URL is set.
@@ -425,3 +505,15 @@ The header shows **Sign in** when logged out and **Log out** when authenticated;
 - Async operations are handled with `async/await`.
 - Build command:
   - `npm run compile`
+
+---
+
+<div align="center">
+
+**Made by the IntelliTest team**
+
+<a href="https://marketplace.visualstudio.com/items?itemName=IntelliTest.debuggo">Marketplace</a> ·
+<a href="https://drive.google.com/file/d/1UP9iwfh7Z4GevF50to298tkthWUM7jLf/view?usp=sharing">Demo Video</a> ·
+<a href="https://github.com/mohamedelziat50/intellitest/issues">Report a Bug</a>
+
+</div>
