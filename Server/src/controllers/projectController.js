@@ -13,11 +13,17 @@ import {
   loadContext,
   loadFeatures,
   loadFeatureRelationships,
+  loadFeatureCoverage,
+  listProjectsForUser,
   syncFeatureIntelligence,
 } from "../services/projectService.js";
 import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
-import { analyzeFeatureImpact as analyzeFeatureImpactGraph } from "../services/featureGraphService.js";
+import {
+  analyzeFeatureImpact as analyzeFeatureImpactGraph,
+  normalizeFeatureKey,
+} from "../services/featureGraphService.js";
 import { logger } from "../utils/logger.js";
+import { computeFeatureWeightsSafe } from "../utils/safeWeighting.js";
 
 /**
  * GET /project/:projectId/init
@@ -27,6 +33,7 @@ import { logger } from "../utils/logger.js";
  */
 export async function initProject(req, res) {
   const { projectId } = req.params;
+  const includeWeighting = String(req.query?.includeWeighting || "").toLowerCase() === "true";
 
   if (!projectId || typeof projectId !== "string" || projectId.trim() === "") {
     return res.status(400).json({
@@ -38,11 +45,58 @@ export async function initProject(req, res) {
 
   try {
     const userId = req.userId || req.user?.id;
+
     const [messages, context, features] = await Promise.all([
       loadMessages(userId, projectId, 50),
       loadContext(userId, projectId),
       loadFeatures(userId, projectId),
     ]);
+
+    let weightingInsight = undefined;
+    if (includeWeighting && userId) {
+      const relRows = await loadFeatureRelationships(userId, projectId);
+      const coverageRows = await loadFeatureCoverage(
+        userId,
+        projectId,
+        (features || []).map((f) => f.normalizedName || f.name),
+      );
+
+      const coverageByFeature = {};
+      for (const row of coverageRows || []) {
+        const name = normalizeFeatureKey(row.feature);
+        if (!name) continue;
+        const value =
+          typeof row.estimatedCoverage === "number"
+            ? row.estimatedCoverage
+            : typeof row.coverage === "number"
+              ? row.coverage
+              : null;
+        if (value != null) coverageByFeature[name] = value;
+      }
+
+      const weights = computeFeatureWeightsSafe({
+        relationships: relRows,
+        features,
+        coverageByFeature,
+        projectId,
+        userId,
+        source: "project_init",
+      });
+
+      weightingInsight = weights
+        ? {
+            weights: weights.weightsByName,
+            coreFeatures: weights.ranking.slice(0, 12).map((x) => x.name),
+            weightedCoverage: weights.weightedCoverage,
+            weightingModel: "core-connectivity-v1",
+          }
+        : {
+            weights: {},
+            coreFeatures: [],
+            weightedCoverage: null,
+            weightingModel: "core-connectivity-v1",
+          };
+    }
 
     logger.info("project_init", {
       projectId,
@@ -51,18 +105,50 @@ export async function initProject(req, res) {
       featureCount: features.length,
     });
 
-    return res.json({
+    const payload = {
       projectId,
       messages,
       context: context ?? null,
       features,
-    });
+    };
+    if (includeWeighting) {
+      payload.insights = { weighting: weightingInsight ?? null };
+    }
+
+    return res.json(payload);
   } catch (err) {
     logger.error("project_init_failed", { projectId, message: err.message });
     return res.status(500).json({
       source: "backend",
       type: "InternalError",
       message: "Failed to load project session.",
+    });
+  }
+}
+
+/**
+ * GET /projects
+ * Lists projects owned by the authenticated user.
+ */
+export async function listProjects(req, res) {
+  const userId = req.userId || req.user?.id;
+  if (!userId) {
+    return res.status(401).json({
+      source: "auth",
+      type: "Unauthorized",
+      message: "Authentication required.",
+    });
+  }
+
+  try {
+    const projects = await listProjectsForUser(userId, 50);
+    return res.json({ projects });
+  } catch (err) {
+    logger.error("project_list_failed", { message: err.message });
+    return res.status(500).json({
+      source: "backend",
+      type: "InternalError",
+      message: "Failed to load projects.",
     });
   }
 }
@@ -106,6 +192,80 @@ export async function syncProject(req, res) {
   } catch (err) {
     logger.error("project_sync_failed", { projectId, message: err.message });
     return res.status(500).json({ error: "Failed to sync project features." });
+  }
+}
+
+/**
+ * GET /project/:projectId/relationships
+ * Returns stored relationships + computed weights for visualization.
+ */
+export async function getProjectRelationships(req, res) {
+  const { projectId } = req.params;
+
+  if (!projectId || typeof projectId !== "string" || projectId.trim() === "") {
+    return res.status(400).json({
+      source: "backend",
+      type: "ValidationError",
+      message: "projectId param is required.",
+    });
+  }
+
+  const userId = req.userId || req.user?.id;
+  if (!userId) {
+    return res.status(401).json({
+      source: "auth",
+      type: "Unauthorized",
+      message: "Authentication required.",
+    });
+  }
+
+  try {
+    const [relRows, features] = await Promise.all([
+      loadFeatureRelationships(userId, projectId),
+      loadFeatures(userId, projectId),
+    ]);
+
+    const coverageRows = await loadFeatureCoverage(
+      userId,
+      projectId,
+      (features || []).map((f) => f.normalizedName || f.name),
+    );
+
+    const coverageByFeature = {};
+    for (const row of coverageRows || []) {
+      const value =
+        typeof row.estimatedCoverage === "number"
+          ? row.estimatedCoverage
+          : typeof row.coverage === "number"
+            ? row.coverage
+            : null;
+      if (value != null) coverageByFeature[row.feature] = value;
+    }
+
+    const weights = computeFeatureWeightsSafe({
+      relationships: relRows,
+      features,
+      coverageByFeature,
+      projectId,
+      userId,
+      source: "project_relationships",
+    });
+
+    return res.json({
+      projectId,
+      relationships: relRows,
+      weights: weights?.weightsByName ?? {},
+      coreFeatures: weights?.ranking?.slice(0, 12).map((x) => x.name) ?? [],
+      weightedCoverage: weights?.weightedCoverage ?? null,
+      weightingModel: "core-connectivity-v1",
+    });
+  } catch (err) {
+    logger.error("project_relationships_failed", { projectId, message: err.message });
+    return res.status(500).json({
+      source: "backend",
+      type: "InternalError",
+      message: "Failed to load feature relationships.",
+    });
   }
 }
 

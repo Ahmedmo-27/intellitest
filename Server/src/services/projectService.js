@@ -125,6 +125,19 @@ export async function upsertProject(userId, projectId, projectMap) {
   return project.toObject();
 }
 
+/**
+ * List projects for the signed-in user.
+ * @param {string} userId
+ * @param {number} [limit]
+ */
+export async function listProjectsForUser(userId, limit = 50) {
+  if (!userId) return [];
+  return Project.find({ userId })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .lean();
+}
+
 // ── ProjectContext ─────────────────────────────────────────────────────────────
 
 /**

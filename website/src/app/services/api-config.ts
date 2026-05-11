@@ -9,9 +9,17 @@ export class ApiConfig {
     GENERATE_TESTCASES: '/generate-testcases',
     GENERATE_TESTS: '/generate-tests',
     ANALYZE_FAILURE: '/analyze-failure',
+    PROJECTS: '/projects',
+    AUTH_LOGIN: '/auth/login',
+    AUTH_SIGNUP: '/auth/signup',
+    AUTH_ME: '/auth/me',
   };
 
   getApiUrl(endpoint: string): string {
     return `${this.BASE_URL}${endpoint}`;
+  }
+
+  getProjectRelationshipsUrl(projectId: string): string {
+    return `${this.BASE_URL}/project/${encodeURIComponent(projectId)}/relationships`;
   }
 }

@@ -53,13 +53,23 @@ let DemoService = (() => {
             __runInitializers(_classThis, _classExtraInitializers);
         }
         config;
-        constructor(config) {
+        auth;
+        constructor(config, auth) {
             this.config = config;
+            this.auth = auth;
+        }
+        buildHeaders() {
+            const headers = { 'Content-Type': 'application/json' };
+            const token = this.auth.getToken();
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
         }
         async postJson(endpoint, payload) {
             const response = await fetch(this.config.getApiUrl(endpoint), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.buildHeaders(),
                 body: JSON.stringify(payload),
             });
             if (!response.ok) {
