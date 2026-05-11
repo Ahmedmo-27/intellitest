@@ -501,7 +501,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 
 		if (!backendUrl) {
 			void vscode.window.showErrorMessage(
-				'Debuggo: set debuggo.backendUrl in Settings (default: http://localhost:3000; use https://intellitest-hyvw.onrender.com for the hosted API).'
+				'Debuggo: set debuggo.backendUrl in Settings (default: https://intellitest-hyvw.onrender.com; use http://localhost:3000 for a local API).'
 			);
 			void this.view?.webview.postMessage({ command: 'generationEnded' });
 			return;
@@ -594,7 +594,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 		const backendUrl = this.getBackendUrl();
 		if (!backendUrl) {
 			notifyError(
-				'Set debuggo.backendUrl to your Debuggo server (e.g. http://localhost:3000) so test code can be generated via POST /generate-test-code.'
+				'Set debuggo.backendUrl to your Debuggo server (default: https://intellitest-hyvw.onrender.com) so test code can be generated via POST /generate-test-code.'
 			);
 			return;
 		}
