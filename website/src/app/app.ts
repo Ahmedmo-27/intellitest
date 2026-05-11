@@ -9,5 +9,5 @@ import { Nav } from './components/nav/nav';
   styleUrl: './app.css'
 })
 export class AppComponent {
-  title = 'intellitest-app';
+  title = 'debuggo-app';
 }

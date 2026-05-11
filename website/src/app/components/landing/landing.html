@@ -23,7 +23,7 @@
                 generates test cases and coded scripts for any function, component, or module.</p>
         </section>
         <section id="what-you-can-do" class="content-section">
-            <h2>What you can do with IntelliTest</h2>
+            <h2>What you can do with Debuggo</h2>
             <p>Agents handle testing tasks from start to finish, from a single function to full test suite coverage
                 across your project.</p>
             <p><strong>Generate test coverage for a feature.</strong> Describe what you want to test in natural
@@ -45,13 +45,13 @@
         </section>
         <section id="setup" class="content-section">
             <h2>Getting started</h2>
-            <p>Follow these five steps to install IntelliTest, open your project, and start generating tests.</p>
+            <p>Follow these five steps to install Debuggo, open your project, and start generating tests.</p>
 
             <ol class="setup-steps">
                 <li class="setup-step">
                     <div class="setup-step__content">
                         <span class="setup-step__number" aria-hidden="true"></span>
-                        <h3>Download IntelliTest</h3>
+                        <h3>Download Debuggo</h3>
                         <p>Install the extension from the marketplace so it is available in your VS Code sidebar.</p>
                     </div>
                 </li>
@@ -60,7 +60,7 @@
                     <div class="setup-step__content">
                         <span class="setup-step__number" aria-hidden="true"></span>
                         <h3>Open a project</h3>
-                        <p>Open the codebase you want to test so IntelliTest can scan the files and understand the
+                        <p>Open the codebase you want to test so Debuggo can scan the files and understand the
                             project structure.</p>
                     </div>
 
@@ -73,11 +73,11 @@
                     <div class="setup-step__content">
                         <span class="setup-step__number" aria-hidden="true"></span>
                         <h3>Select the extension icon</h3>
-                        <p>Click the IntelliTest icon in the activity bar to open the extension panel.</p>
+                        <p>Click the Debuggo icon in the activity bar to open the extension panel.</p>
                     </div>
 
                     <figure class="setup-step__media">
-                        <img src="assets/extentionLogoEdited.png" alt="IntelliTest extension icon in VS Code"
+                        <img src="assets/debuggologo.png" alt="Debuggo extension icon in VS Code"
                             class="setup-step__image">
                     </figure>
                 </li>
@@ -86,12 +86,12 @@
                     <div class="setup-step__content">
                         <span class="setup-step__number" aria-hidden="true"></span>
                         <h3>Confirm the stack is detected</h3>
-                        <p>Look for the detected tech stack card so you know IntelliTest has read the framework and
+                        <p>Look for the detected tech stack card so you know Debuggo has read the framework and
                             tooling correctly.</p>
                     </div>
 
                     <figure class="setup-step__media">
-                        <img src="assets/stackEdit.png" alt="Detected tech stack shown inside the IntelliTest panel"
+                        <img src="assets/debuggostack.png" alt="Detected tech stack shown inside the Debuggo panel"
                             class="setup-step__image">
                     </figure>
                 </li>
@@ -105,8 +105,8 @@
                     </div>
 
                     <figure class="setup-step__media">
-                        <img src="assets/StartTesting.png"
-                            alt="Prompt box and test generation controls in the IntelliTest panel"
+                        <img src="assets/debuggotest.png"
+                            alt="Prompt box and test generation controls in the Debuggo panel"
                             class="setup-step__image">
                     </figure>
                 </li>
@@ -133,15 +133,15 @@
 
         <section id="chat-session" class="content-section chat-session">
             <h2>Chat Session</h2>
-            <h3>How IntelliTest Chat Works</h3>
-            <p>IntelliTest enables you to use natural language to generate test suites for your codebase. Ask for unit
+            <h3>How Debuggo Chat Works</h3>
+            <p>Debuggo enables you to use natural language to generate test suites for your codebase. Ask for unit
                 tests, integration coverage, regression scripts, or edge case validation&mdash;all through a simple
                 conversational interface. This guide covers how to structure prompts, how the agent uses your project
                 context, and how to review generated test outputs.</p>
 
             <h3>What is a test session?</h3>
             <p>A test session is your ongoing conversation with the agent, including all prompts you've written and the
-                test scripts it has generated. Unlike other tools, IntelliTest maintains a single persistent session
+                test scripts it has generated. Unlike other tools, Debuggo maintains a single persistent session
                 that remembers your entire project context&mdash;there's no need to switch between chats or restart
                 conversations.</p>
 
@@ -163,35 +163,35 @@
                 Context is everything the agent understands when generating your tests. It includes what it learns from
                 scanning your project structure, the tech stack and frameworks it detects, the domain it infers from
                 your files, and,most importantly,exactly what you ask for in your prompt. The agent can only generate
-                meaningful tests based on what it knows about your project. That's why IntelliTest works so hard to
+                meaningful tests based on what it knows about your project. That's why Debuggo works so hard to
                 build a complete picture before generating a single line of test code. The richer the context, the
                 smarter the test.
             </p>
 
             <dl class="context-dictionary">
                 <div class="context-item">
-                    <dt>How IntelliTest Understands Your Project</dt>
+                    <dt>How Debuggo Understands Your Project</dt>
                     <dd>
-                        <p>When you open IntelliTest in your workspace, it quietly gets to work. It scans your project
+                        <p>When you open Debuggo in your workspace, it quietly gets to work. It scans your project
                             folder, looking for the signals that tell it what kind of project you're building. It looks
                             for things like dependency files, configuration manifests, and folder structures, but it
                             skips the noisy stuff like node_modules, build outputs, and version control folders.</p>
-                        <p>From that scan, IntelliTest builds a high-level map of your project. It learns what
+                        <p>From that scan, Debuggo builds a high-level map of your project. It learns what
                             programming language and framework you're using, where your main modules live, how your
                             files are organized, and what kind of product you're building.</p>
-                        <p>None of this requires looking at your actual source code. IntelliTest works from structure,
+                        <p>None of this requires looking at your actual source code. Debuggo works from structure,
                             metadata, and file patterns, not the contents of your proprietary logic.</p>
                         <p>Then you add your prompt. You type something like "write unit tests for the checkout flow" or
                             "generate regression tests for the user dashboard." Your request becomes the anchor.
-                            IntelliTest combines what you asked for with what it learned about your project, sends a
+                            Debuggo combines what you asked for with what it learned about your project, sends a
                             structured summary to the model, and receives ready-to-run test scripts in return.</p>
                     </dd>
                 </div>
 
                 <div class="context-item">
-                    <dt>What context IntelliTest uses</dt>
+                    <dt>What context Debuggo uses</dt>
                     <dd>
-                        <p><strong>Your tech stack.</strong> IntelliTest detects whether you're working in Node.js,
+                        <p><strong>Your tech stack.</strong> Debuggo detects whether you're working in Node.js,
                             Python, Java, Go, Rust, Ruby, PHP, or a containerized environment. It identifies web
                             frameworks from the files it finds. This tells the model what syntax, conventions, and
                             testing libraries to use.</p>
@@ -199,18 +199,18 @@
                             pyproject.toml, pom.xml, go.mod, or similar files to recommend the right testing tools, such
                             as Jest, Mocha, pytest, JUnit, and others. The UI reflects this recommendation, and the
                             generated output matches your actual setup.</p>
-                        <p><strong>Your project structure.</strong> IntelliTest builds a map of your top-level modules
+                        <p><strong>Your project structure.</strong> Debuggo builds a map of your top-level modules
                             using relative file paths. It pays attention to folders that suggest routes, pages, APIs,
                             controllers, or endpoints. This helps the model understand where different pieces of
                             functionality live.</p>
-                        <p><strong>Your product domain.</strong> Here's where IntelliTest gets surprisingly smart. From
+                        <p><strong>Your product domain.</strong> Here's where Debuggo gets surprisingly smart. From
                             file names, package metadata, and even your prompt, the system can infer what kind of
                             product you're building, such as an e-commerce store, a learning platform, a SaaS dashboard,
                             a booking system, a healthcare application, or a real estate tool. That inference shapes the
                             tests it generates. An e-commerce checkout needs different edge cases than a content
                             management system.</p>
                         <p><strong>Your prompt.</strong> Everything you type in the chat becomes the highest-priority
-                            signal. If you limit the scope to a specific feature, IntelliTest honors that. If you leave
+                            signal. If you limit the scope to a specific feature, Debuggo honors that. If you leave
                             it open-ended, the system can intelligently broaden coverage. Your intent drives everything.
                         </p>
                     </dd>
@@ -222,7 +222,7 @@
                         <p>Without project context, test generation is blind. You get generic scripts that might look
                             right at a glance but fail because they import the wrong modules, mock missing dependencies,
                             or assert against phantom variables.</p>
-                        <p>With project context, IntelliTest generates tests that use your actual framework conventions,
+                        <p>With project context, Debuggo generates tests that use your actual framework conventions,
                             reference real module paths, cover meaningful edge cases, and run without manual cleanup
                             because they match your testing setup.</p>
                         <p>This is the difference between generating code that looks like a test and generating code
@@ -236,19 +236,19 @@
             <h2>Smart Folder Scanning</h2>
             <p>A typical project contains a mix of source files, generated artifacts, dependency trees, and
                 configuration data. Only a subset of that material is useful for understanding the codebase.</p>
-            <p>IntelliTest distinguishes between relevant project signals and background noise automatically.</p>
+            <p>Debuggo distinguishes between relevant project signals and background noise automatically.</p>
             <dl class="context-dictionary">
                 <div class="context-item">
                     <dt>What gets scanned</dt>
                     <dd>
-                        <p><strong>Source files.</strong> IntelliTest focuses on the files that contain application
+                        <p><strong>Source files.</strong> Debuggo focuses on the files that contain application
                             logic, including functions, components, modules, and routes. These are the primary inputs
                             required to generate accurate tests.</p>
                         <p><strong>Dependency manifests.</strong> Files such as package.json, pyproject.toml, go.mod,
                             pom.xml, and Cargo.toml identify the framework and testing tools in use. They provide
                             configuration context without introducing unnecessary noise.</p>
                         <p><strong>Structural cues.</strong> Folders named routes, pages, api, controllers, or endpoints
-                            help IntelliTest understand project organization so generated tests reference the correct
+                            help Debuggo understand project organization so generated tests reference the correct
                             paths.</p>
                     </dd>
                 </div>
@@ -256,7 +256,7 @@
                     <dt>What gets skipped automatically</dt>
                     <dd>
                         <p><strong>Dependencies.</strong> The node_modules directory can contain tens of thousands of
-                            files, none of which represent the application's source code. IntelliTest excludes it
+                            files, none of which represent the application's source code. Debuggo excludes it
                             completely.</p>
                         <p><strong>Build outputs.</strong> Directories such as dist, build, out, and target are
                             generated artifacts and do not contribute to code understanding.</p>
@@ -274,7 +274,7 @@
 
         <section id="security-privacy" class="content-section">
             <h2>Security & Privacy</h2>
-            <p>IntelliTest never sends your source code to any model. The extension reads your project locally to
+            <p>Debuggo never sends your source code to any model. The extension reads your project locally to
                 analyze structure and build context, but what guides test generation is a structured project map, file
                 paths, folder structure, dependency manifests, tech stack detection, and domain inference. Raw source
                 content stays on your machine.</p>
