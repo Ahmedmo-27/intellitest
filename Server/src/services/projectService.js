@@ -40,12 +40,22 @@ function normalizeLegacyFeatureRow(doc) {
   } else if (typeof doc.testScore === "number") {
     importanceScore = Math.min(1, Math.max(0, doc.testScore / 100));
   }
+  const t = doc.type || "backend";
+  const hasFrontend =
+    typeof doc.hasFrontend === "boolean" ? doc.hasFrontend : t === "ui" || t === "fullstack";
+  const hasBackend =
+    typeof doc.hasBackend === "boolean"
+      ? doc.hasBackend
+      : t === "backend" || t === "api" || t === "service" || t === "fullstack";
+
   return {
     ...doc,
     normalizedName,
     importanceScore,
     files: Array.isArray(doc.files) ? doc.files : [],
-    type: doc.type || "ui",
+    type: t,
+    hasFrontend,
+    hasBackend,
   };
 }
 
@@ -338,6 +348,8 @@ export async function syncFeatureIntelligence(userId, projectId, features, relat
             normalizedName: f.normalizedName,
             files: Array.isArray(f.files) ? f.files : [],
             type: f.type ?? "backend",
+            hasFrontend: f.hasFrontend === true,
+            hasBackend: f.hasBackend === true,
             importanceScore: typeof f.importanceScore === "number" ? f.importanceScore : 0.5,
             synonyms: Array.isArray(f.synonyms) ? f.synonyms : [],
           },

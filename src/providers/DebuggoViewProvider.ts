@@ -24,7 +24,7 @@ import { sanitizeTestFilename } from '../utils/testScriptNormalize.js';
 import type { WebviewMessage } from '../types/messages.js';
 import { getWebviewHtml } from '../webview/template.js';
 import { getOrCreateProjectId } from '../utils/projectId.js';
-import { listProjectRelativePaths } from '../services/codebaseContext.js';
+import { filterPathsForFeatureSync, listProjectRelativePaths } from '../services/codebaseContext.js';
 import {
 	buildGeneratedTestRunInstructionsMarkdown,
 	buildGeneratedTestsTsConfigJson,
@@ -441,7 +441,7 @@ export class DebuggoViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		const allFiles = listProjectRelativePaths(workspaceRootPath, 2000);
+		const allFiles = filterPathsForFeatureSync(listProjectRelativePaths(workspaceRootPath, 2000));
 
 		if (silent) {
 			try {
