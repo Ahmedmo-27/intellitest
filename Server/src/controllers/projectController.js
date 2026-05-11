@@ -20,9 +20,10 @@ import {
 import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
 import {
   analyzeFeatureImpact as analyzeFeatureImpactGraph,
-  computeFeatureWeights,
+  normalizeFeatureKey,
 } from "../services/featureGraphService.js";
 import { logger } from "../utils/logger.js";
+import { computeFeatureWeightsSafe } from "../utils/safeWeighting.js";
 
 /**
  * GET /project/:projectId/init
@@ -32,6 +33,7 @@ import { logger } from "../utils/logger.js";
  */
 export async function initProject(req, res) {
   const { projectId } = req.params;
+  const includeWeighting = String(req.query?.includeWeighting || "").toLowerCase() === "true";
 
   if (!projectId || typeof projectId !== "string" || projectId.trim() === "") {
     return res.status(400).json({
@@ -50,6 +52,52 @@ export async function initProject(req, res) {
       loadFeatures(userId, projectId),
     ]);
 
+    let weightingInsight = undefined;
+    if (includeWeighting && userId) {
+      const relRows = await loadFeatureRelationships(userId, projectId);
+      const coverageRows = await loadFeatureCoverage(
+        userId,
+        projectId,
+        (features || []).map((f) => f.normalizedName || f.name),
+      );
+
+      const coverageByFeature = {};
+      for (const row of coverageRows || []) {
+        const name = normalizeFeatureKey(row.feature);
+        if (!name) continue;
+        const value =
+          typeof row.estimatedCoverage === "number"
+            ? row.estimatedCoverage
+            : typeof row.coverage === "number"
+              ? row.coverage
+              : null;
+        if (value != null) coverageByFeature[name] = value;
+      }
+
+      const weights = computeFeatureWeightsSafe({
+        relationships: relRows,
+        features,
+        coverageByFeature,
+        projectId,
+        userId,
+        source: "project_init",
+      });
+
+      weightingInsight = weights
+        ? {
+            weights: weights.weightsByName,
+            coreFeatures: weights.ranking.slice(0, 12).map((x) => x.name),
+            weightedCoverage: weights.weightedCoverage,
+            weightingModel: "core-connectivity-v1",
+          }
+        : {
+            weights: {},
+            coreFeatures: [],
+            weightedCoverage: null,
+            weightingModel: "core-connectivity-v1",
+          };
+    }
+
     logger.info("project_init", {
       projectId,
       messageCount: messages.length,
@@ -57,12 +105,17 @@ export async function initProject(req, res) {
       featureCount: features.length,
     });
 
-    return res.json({
+    const payload = {
       projectId,
       messages,
       context: context ?? null,
       features,
-    });
+    };
+    if (includeWeighting) {
+      payload.insights = { weighting: weightingInsight ?? null };
+    }
+
+    return res.json(payload);
   } catch (err) {
     logger.error("project_init_failed", { projectId, message: err.message });
     return res.status(500).json({
@@ -189,14 +242,21 @@ export async function getProjectRelationships(req, res) {
       if (value != null) coverageByFeature[row.feature] = value;
     }
 
-    const weights = computeFeatureWeights(relRows, features, coverageByFeature);
+    const weights = computeFeatureWeightsSafe({
+      relationships: relRows,
+      features,
+      coverageByFeature,
+      projectId,
+      userId,
+      source: "project_relationships",
+    });
 
     return res.json({
       projectId,
       relationships: relRows,
-      weights: weights.weightsByName,
-      coreFeatures: weights.ranking.slice(0, 12).map((x) => x.name),
-      weightedCoverage: weights.weightedCoverage,
+      weights: weights?.weightsByName ?? {},
+      coreFeatures: weights?.ranking?.slice(0, 12).map((x) => x.name) ?? [],
+      weightedCoverage: weights?.weightedCoverage ?? null,
       weightingModel: "core-connectivity-v1",
     });
   } catch (err) {

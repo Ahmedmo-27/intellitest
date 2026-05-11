@@ -11,6 +11,7 @@ export class ApiConfig {
     ANALYZE_FAILURE: '/analyze-failure',
     PROJECTS: '/projects',
     AUTH_LOGIN: '/auth/login',
+    AUTH_SIGNUP: '/auth/signup',
     AUTH_ME: '/auth/me',
   };
 
