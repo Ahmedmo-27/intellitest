@@ -8,6 +8,8 @@
         <a class="header-button header-button--secondary" routerLink="/faq">FAQ</a>
         <a class="header-button header-button--secondary" routerLink="/about">About Us</a>
         <a class="header-button header-button--secondary" href="#">Download</a>
+        <a class="header-button header-button--secondary" routerLink="/login" *ngIf="!(auth.isAuthenticated$ | async)">Sign in</a>
+        <button class="header-button header-button--secondary" type="button" (click)="logout()" *ngIf="auth.isAuthenticated$ | async">Sign out</button>
         <a class="header-button header-button--primary" routerLink="/demo">Try it yourself</a>
     </div>
 </header>
