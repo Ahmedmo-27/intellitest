@@ -49,9 +49,16 @@ export type ProjectSession = {
 	} | null;
 	features: Array<{
 		name: string;
-		description: string;
-		testScore: number;
-		metrics: {
+		normalizedName?: string;
+		type?: 'ui' | 'backend' | 'api' | 'service' | 'fullstack';
+		hasFrontend?: boolean;
+		hasBackend?: boolean;
+		importanceScore?: number;
+		files?: string[];
+		synonyms?: string[];
+		description?: string;
+		testScore?: number;
+		metrics?: {
 			totalTests: number;
 			passedTests: number;
 			failedTests: number;

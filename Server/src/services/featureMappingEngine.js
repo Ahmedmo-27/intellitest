@@ -1,4 +1,10 @@
 import { normalize } from "./guardrailService.js";
+import {
+  CANONICAL_FEATURES,
+  resolveCanonicalKeysFromPhrase,
+  resolveCatalogKeysFromRawPromptText,
+} from "./domainFeatureCatalog.js";
+import { normalizeSegment } from "./featureNormalization.js";
 
 /**
  * Merge locally computed edges with persisted Mongo edges (dedupe by source|target|type).
@@ -28,16 +34,20 @@ const SYNONYMS = {
 };
 
 const BOOSTS = {
-  "checkout": 1.0,
-  "payment": 1.0,
-  "auth": 0.95,
-  "cart": 0.9,
-  "product": 0.8
+  checkout: 1.0,
+  payment: 1.0,
+  auth: 0.95,
+  authentication: 0.96,
+  cart: 0.9,
+  product: 0.8,
 };
 
 function scoreMatch(promptTokens, featureTokens) {
+  const fts = Array.isArray(featureTokens) ? featureTokens : [];
+  if (fts.length === 0) return 0;
+
   let score = 0;
-  for (const ft of featureTokens) {
+  for (const ft of fts) {
     if (promptTokens.includes(ft)) {
       score += 1.0; // exact match
       continue;
@@ -61,7 +71,124 @@ function scoreMatch(promptTokens, featureTokens) {
         }
     }
   }
-  return score / featureTokens.length;
+  return score / fts.length;
+}
+
+/**
+ * Catalog keys (e.g. `authentication`) implied by prompt text, using the same
+ * token→domain map as path-based feature extraction so words like "login"
+ * align with the `authentication` canonical feature.
+ */
+function catalogKeysFromPrompt(promptText, promptTokens) {
+  const keys = new Set();
+  for (const pt of promptTokens) {
+    const hyphenSplit = String(pt).split("-").filter(Boolean);
+    const variants = hyphenSplit.length > 1 ? [pt, ...hyphenSplit] : [pt];
+    for (const raw of variants) {
+      const phrase = normalizeSegment(raw);
+      if (phrase) {
+        for (const ck of resolveCanonicalKeysFromPhrase(phrase)) {
+          keys.add(ck);
+        }
+      }
+    }
+  }
+  const collapsed = normalizeSegment(
+    String(promptText ?? "")
+      .replace(/[^a-zA-Z0-9]+/g, " ")
+      .trim(),
+  );
+  if (collapsed) {
+    for (const ck of resolveCanonicalKeysFromPhrase(collapsed)) {
+      keys.add(ck);
+    }
+  }
+  return keys;
+}
+
+function normalizeFeatureLookupKey(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function catalogKeyForFeature(feature) {
+  const nn = normalizeFeatureLookupKey(feature?.normalizedName);
+  const display = String(feature?.name ?? "").trim().toLowerCase();
+  if (!nn && !display) return null;
+
+  for (const [ck, def] of Object.entries(CANONICAL_FEATURES)) {
+    const canonNn = normalizeFeatureLookupKey(def.normalizedName);
+    const canonName = String(def.name ?? "").trim().toLowerCase();
+    if (nn && canonNn === nn) return ck;
+    if (display && canonName === display) return ck;
+    if (nn && canonName && nn === canonName) return ck;
+  }
+  return null;
+}
+
+/** Stemmed + literal catalog tokens for overlap when phrase resolution misses (e.g. stemming drift). */
+function stemmedCatalogTokenSet(catalogKey) {
+  const def = CANONICAL_FEATURES[catalogKey];
+  if (!def?.tokens) return new Set();
+  const out = new Set();
+  for (const tok of def.tokens) {
+    out.add(String(tok).toLowerCase());
+    for (const x of normalize(String(tok))) {
+      out.add(x);
+    }
+  }
+  return out;
+}
+
+/**
+ * True when prompt tokens overlap catalog vocabulary (exact or cautious substring).
+ */
+function promptTouchesCatalogTokens(promptTokens, catalogKey, minLen = 4) {
+  const bag = stemmedCatalogTokenSet(catalogKey);
+  if (!bag.size || !Array.isArray(promptTokens) || promptTokens.length === 0) return false;
+
+  for (const pt of promptTokens) {
+    const p = String(pt).toLowerCase();
+    if (bag.has(p)) return true;
+  }
+
+  for (const pt of promptTokens) {
+    const p = String(pt).toLowerCase();
+    if (p.length < minLen) continue;
+    for (const ct of bag) {
+      if (ct.length < minLen) continue;
+      if (ct.includes(p) || p.includes(ct)) return true;
+    }
+  }
+  return false;
+}
+
+function scoreFromSynonyms(promptTokens, synonyms) {
+  if (!Array.isArray(synonyms) || synonyms.length === 0) return 0;
+  let best = 0;
+  for (const syn of synonyms) {
+    if (syn == null) continue;
+    const st = normalize(String(syn));
+    if (st.length === 0) continue;
+    best = Math.max(best, scoreMatch(promptTokens, st));
+  }
+  return best;
+}
+
+function persistedFeatureHintTokens(feature) {
+  const hints = [];
+  if (Array.isArray(feature?.tokens)) {
+    for (const t of feature.tokens) {
+      hints.push(...normalize(String(t)));
+    }
+  }
+  if (feature?.primaryStem) {
+    hints.push(...normalize(String(feature.primaryStem)));
+  }
+  return [...new Set(hints)];
 }
 
 /**
@@ -104,17 +231,46 @@ export function mapPromptToFeatures(prompt, featuresInDb, relationshipsInDb) {
   if (!prompt || typeof prompt !== "string") return result;
 
   const promptTokens = normalize(prompt);
-  if (promptTokens.length === 0) return result;
+
+  const promptCatalogKeys = new Set([
+    ...catalogKeysFromPrompt(prompt, promptTokens),
+    ...resolveCatalogKeysFromRawPromptText(prompt),
+  ]);
+
+  if (promptTokens.length === 0 && promptCatalogKeys.size === 0) {
+    return result;
+  }
 
   const scoredFeatures = [];
   
   for (const feature of featuresInDb) {
       const featureTokens = normalize(feature.normalizedName);
       let matchScore = scoreMatch(promptTokens, featureTokens);
+      matchScore = Math.max(
+        matchScore,
+        scoreFromSynonyms(promptTokens, feature.synonyms),
+        scoreMatch(promptTokens, persistedFeatureHintTokens(feature)),
+      );
+      if (feature?.name) {
+        matchScore = Math.max(matchScore, scoreMatch(promptTokens, normalize(String(feature.name))));
+      }
+
+      const catalogKey = catalogKeyForFeature(feature);
+      if (catalogKey) {
+        if (promptCatalogKeys.has(catalogKey)) {
+          matchScore = Math.max(matchScore, 0.95);
+        } else if (promptTokens.length > 0 && promptTouchesCatalogTokens(promptTokens, catalogKey)) {
+          matchScore = Math.max(matchScore, 0.82);
+        }
+      }
       
       if (matchScore > 0) {
           // Apply Priority Boost
-          const boost = BOOSTS[feature.normalizedName] || feature.importanceScore || 0.5;
+          const boost =
+            BOOSTS[feature.normalizedName] ||
+            (catalogKey ? BOOSTS[catalogKey] : undefined) ||
+            feature.importanceScore ||
+            0.5;
           const finalScore = matchScore * boost;
 
           scoredFeatures.push({

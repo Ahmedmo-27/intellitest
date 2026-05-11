@@ -464,8 +464,13 @@ export async function analyzeIntent(req, res) {
     const domainMatches = domainMatchedFeatures(matchedFeatureNames);
     const catalogDomainHints = domainMatchedFeatures(catalogNames);
 
-    // No real domain feature matched — align with /generate (skip expensive mapping).
-    if (prompt.trim() && extractedFeatures.length > 0 && domainMatches.length === 0) {
+    // Prompt only hit generic/meta feature labels (e.g. tests/) — align with POST /generate.
+    if (
+      prompt.trim() &&
+      extractedFeatures.length > 0 &&
+      matchedFeatureNames.length > 0 &&
+      domainMatches.length === 0
+    ) {
       const hintList = catalogDomainHints.length ? catalogDomainHints : catalogNames;
       return res.json({
         decision: "none",

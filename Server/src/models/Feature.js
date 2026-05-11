@@ -13,9 +13,14 @@ const FeatureSchema = new mongoose.Schema({
 
   type: {
     type: String,
-    enum: ["ui", "backend", "api", "service"],
-    default: "ui"
+    enum: ["ui", "backend", "api", "service", "fullstack"],
+    default: "backend",
   },
+
+  /** True if any linked file path is classified as frontend (client/UI) code. */
+  hasFrontend: { type: Boolean, default: false },
+  /** True if any linked file path is classified as server-side code. */
+  hasBackend: { type: Boolean, default: false },
 
   importanceScore: { type: Number, default: 0.5 },
 

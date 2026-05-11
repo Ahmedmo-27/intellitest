@@ -3,32 +3,126 @@ import {
   derivePrimaryStem,
   phraseToTokens,
   mergeSynonymAliases,
-  NOISE_WORDS,
 } from "./featureNormalization.js";
 import { detectFeatureRelationships } from "./relationshipDetectionEngine.js";
+import {
+  CANONICAL_FEATURES,
+  collectPathCandidates,
+  resolveCanonicalKeysFromPhrase,
+} from "./domainFeatureCatalog.js";
+import {
+  classifySurfaces,
+  detectServerSubtype,
+  deriveAggregateFeatureType,
+} from "./featurePathLayers.js";
 
 const featureCache = new Map();
 const relationshipCache = new Map();
 
-function detectType(filePath) {
-  const lowerPath = filePath.toLowerCase().replace(/\\/g, "/");
-  if (
-    /\/pages\/|\/screens\/|\.page\.|(^|\/)page\.|\/components\/|\/widgets\/|\/layouts\/|\/views\/|screen\.|modal\./.test(
-      lowerPath,
-    )
-  ) {
-    return "ui";
-  }
-  if (/controller|handlers?\//.test(lowerPath)) return "backend";
-  if (/service\.|\/services\/|repository|repos?\//.test(lowerPath)) return "service";
-  if (/route|router|\.routes?\./.test(lowerPath)) return "api";
-  return "backend";
-}
+/** Non-source / asset extensions — keep in sync with `filterPathsForFeatureSync` in the VS Code extension. */
+const NON_SOURCE_EXTENSIONS = new Set([
+  "png",
+  "apng",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "ico",
+  "svg",
+  "pdf",
+  "txt",
+  "md",
+  "markdown",
+  "rtf",
+  "woff",
+  "woff2",
+  "ttf",
+  "otf",
+  "eot",
+  "mp4",
+  "webm",
+  "mov",
+  "mp3",
+  "wav",
+  "zip",
+  "tar",
+  "gz",
+  "tgz",
+  "7z",
+  "rar",
+  "map",
+  "lock",
+  "sqlite",
+  "db",
+  "bin",
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+  "obj",
+  "o",
+  "a",
+  "lib",
+  "log",
+  "csv",
+  "xlsx",
+  "xls",
+  "ppt",
+  "pptx",
+  "doc",
+  "docx",
+  "json",
+  "yml",
+  "yaml",
+  "xml",
+  "avif",
+  "heic",
+]);
 
-function mergeTypePreference(existing, incoming) {
-  const rank = { ui: 4, api: 3, backend: 2, service: 1 };
-  const e = existing || "backend";
-  return rank[incoming] > rank[e] ? incoming : e;
+const NOISY_BASENAMES = new Set(["robots.txt", "favicon.ico", ".ds_store"]);
+
+/** Top-level folder labels from directory scans — not domain features. */
+const STATIC_TOP_LEVEL_FOLDER = new Set([
+  "public",
+  "static",
+  "assets",
+  "www",
+  "uploads",
+  "media",
+  "images",
+  "img",
+  "fonts",
+  "fixtures",
+]);
+
+/** Extensionless paths must resemble app source (aligned with extension `projectMap` route hints). */
+const CODE_PATH_LIKE =
+  /route|router|pages\/|\/pages|\/app\/|^app\/|\/api\/|^api\/|controller|endpoint|\/src\/|^src\/|\/components\/|\/services\/|\/handlers\/|\/screens\/|\/layouts\/|\/views\/|\/widgets\/|\/models\/|\/schemas\/|\/server\/|\/client\/|\/lib\/|\/utils\/|repository\/|repos?\//i;
+
+/**
+ * Whether a relative path should contribute to feature extraction (FE/BE source-like only).
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+export function shouldIncludePathForFeatures(filePath) {
+  const norm = String(filePath).replace(/\\/g, "/").trim();
+  if (!norm || norm.startsWith(".")) return false;
+
+  const basename = norm.split("/").pop() || "";
+  if (!basename || basename.startsWith(".")) return false;
+
+  const baseLower = basename.toLowerCase();
+  if (NOISY_BASENAMES.has(baseLower)) return false;
+
+  const dot = basename.lastIndexOf(".");
+  if (dot > 0) {
+    const ext = basename.slice(dot + 1).toLowerCase();
+    if (NON_SOURCE_EXTENSIONS.has(ext)) return false;
+    return true;
+  }
+
+  return CODE_PATH_LIKE.test(norm);
 }
 
 function isLowValueFeature(normalizedName, frequency, fileCount) {
@@ -51,109 +145,110 @@ export function extractFeatures(projectMap, projectId) {
 
   const featureMap = new Map();
 
-  const upsertFeature = (normalized, filePath, type, alias = null) => {
-    if (!normalized || NOISE_WORDS.has(normalized)) return;
+  const upsertCanonical = (canonicalKey, filePath, stemAliases) => {
+    const meta = CANONICAL_FEATURES[canonicalKey];
+    if (!meta) return;
 
-    if (!featureMap.has(normalized)) {
-      featureMap.set(normalized, {
-        name: normalized,
-        normalizedName: normalized,
-        type,
+    if (!featureMap.has(canonicalKey)) {
+      featureMap.set(canonicalKey, {
+        name: meta.name,
+        normalizedName: meta.normalizedName,
+        catalogDefaultType: meta.type,
+        importanceScore: meta.importanceScore,
         files: new Set(),
         frequency: 0,
         synonyms: new Set(),
+        hasFrontend: false,
+        hasBackend: false,
+        serverKindCounts: { api: 0, backend: 0, service: 0 },
       });
     }
-    const feature = featureMap.get(normalized);
+    const feature = featureMap.get(canonicalKey);
     feature.frequency += 1;
-    if (alias && alias !== normalized) feature.synonyms.add(alias);
+    feature.importanceScore = Math.max(feature.importanceScore, meta.importanceScore);
+
+    const surf = classifySurfaces(filePath);
+    if (surf.frontend) feature.hasFrontend = true;
+    if (surf.backend) {
+      feature.hasBackend = true;
+      const sub = detectServerSubtype(filePath);
+      feature.serverKindCounts[sub] += 1;
+    }
+
+    for (const stem of stemAliases) {
+      if (!stem) continue;
+      const aliasNorm = normalizeSegment(stem);
+      if (aliasNorm && aliasNorm !== meta.normalizedName) feature.synonyms.add(stem);
+    }
+
     if (filePath && (filePath.includes("/") || filePath.includes("\\") || filePath.includes("."))) {
       feature.files.add(filePath);
     }
-    feature.type = mergeTypePreference(feature.type, type);
   };
 
-  const processItems = (items, preferredType = null) => {
+  const processPaths = (items) => {
     if (!Array.isArray(items)) return;
 
     for (const item of items) {
       const filePath = typeof item === "string" ? item : item?.path || item?.name || "";
       if (!filePath || filePath.startsWith(".")) continue;
 
-      const type = preferredType || detectType(filePath);
-      const parts = filePath.split(/[/\\]+/);
+      const bareTopLevel =
+        !filePath.includes("/") &&
+        !filePath.includes("\\") &&
+        !filePath.includes(".");
+      if (bareTopLevel && STATIC_TOP_LEVEL_FOLDER.has(filePath.toLowerCase())) continue;
 
-      for (let part of parts) {
-        part = part.replace(/\.[a-zA-Z0-9]+$/, "");
-        if (!part || part.startsWith(".") || NOISE_WORDS.has(part.toLowerCase())) continue;
+      if (!shouldIncludePathForFeatures(filePath)) continue;
 
-        const normalized = normalizeSegment(part);
-        if (!normalized) continue;
-        upsertFeature(normalized, filePath, type, part !== normalized ? part : null);
+      const keyToStems = new Map();
+
+      for (const stem of collectPathCandidates(filePath)) {
+        const norm = normalizeSegment(stem);
+        if (!norm) continue;
+        for (const ck of resolveCanonicalKeysFromPhrase(norm)) {
+          if (!CANONICAL_FEATURES[ck]) continue;
+          if (!keyToStems.has(ck)) keyToStems.set(ck, new Set());
+          keyToStems.get(ck).add(stem);
+        }
+      }
+
+      for (const [ck, stems] of keyToStems) {
+        upsertCanonical(ck, filePath, stems);
       }
     }
   };
 
-  processItems(projectMap.routes, "api");
-  processItems(projectMap.controllers, "backend");
-  processItems(projectMap.modules, null);
-  processItems(projectMap.priorityFiles || projectMap.files, null);
-
-  const explicitPairs = [
-    ["add to cart", "ui"],
-    ["shopping cart", "ui"],
-    ["product page", "ui"],
-  ];
-  for (const [phrase, t] of explicitPairs) {
-    const key = phrase.toLowerCase();
-    const exists = [...featureMap.keys()].some((k) => k.includes(key) || key.includes(k));
-    if (exists && !featureMap.has(key)) {
-      featureMap.set(key, {
-        name: phrase,
-        normalizedName: key,
-        type: t,
-        files: new Set(),
-        frequency: 1,
-        synonyms: new Set(),
-      });
-    }
-  }
-
-  const explicitScores = {
-    checkout: 1,
-    "shopping cart": 0.95,
-    cart: 0.9,
-    payment: 1,
-    auth: 0.95,
-    product: 0.85,
-    order: 0.95,
-  };
+  processPaths(projectMap.routes);
+  processPaths(projectMap.controllers);
+  processPaths(projectMap.modules);
+  processPaths(projectMap.priorityFiles || projectMap.files);
 
   const features = [];
   for (const f of featureMap.values()) {
     const fileCount = f.files.size;
     if (isLowValueFeature(f.normalizedName, f.frequency, fileCount)) continue;
 
-    let importanceScore = 0.5;
-    if (explicitScores[f.normalizedName] !== undefined) {
-      importanceScore = explicitScores[f.normalizedName];
-    } else if (/checkout|payment/.test(f.normalizedName)) {
-      importanceScore = 1;
-    } else if (/auth|login|session/.test(f.normalizedName)) {
-      importanceScore = 0.95;
-    } else if (/cart|order|product/.test(f.normalizedName)) {
-      importanceScore = 0.82;
-    }
+    const importanceScore = f.importanceScore ?? 0.5;
 
     const tokens = phraseToTokens(f.normalizedName);
     const primaryStem = derivePrimaryStem(f.normalizedName);
     const synonyms = mergeSynonymAliases(f.normalizedName, [...f.synonyms]);
 
+    const type = deriveAggregateFeatureType(
+      f.hasFrontend,
+      f.hasBackend,
+      f.serverKindCounts,
+      f.catalogDefaultType,
+    );
+
     features.push({
       name: f.name,
       normalizedName: f.normalizedName,
       files: [...f.files],
-      type: f.type,
+      type,
+      hasFrontend: f.hasFrontend,
+      hasBackend: f.hasBackend,
       importanceScore,
       tokens,
       primaryStem,
