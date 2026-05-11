@@ -10,27 +10,42 @@
  */
 
 import "dotenv/config";
-import { server as serverConfig } from "./config.js";
+import { server as serverConfig, ai as aiConfig } from "./config.js";
 import { createApp }    from "./app.js";
+import mongoose from "mongoose";
 import { connectDB, disconnectDB } from "./db/connection.js";
 import { logger }       from "./utils/logger.js";
 
 async function main() {
   // ── 1. Connect to MongoDB ─────────────────────────────────────────────────
   // Non-fatal: a DB failure logs a warning but lets the server start.
-  // Endpoints that require the DB will return 503 naturally;
-  // /health and stateless endpoints remain fully operational.
+  // Auth routes use ensureMongoConnected middleware (503 immediately).
+  // Disabling command buffering avoids queued User.findOne() calls waiting ~10s then timing out.
   try {
     await connectDB();
   } catch (err) {
+    mongoose.set("bufferCommands", false);
     logger.warn("mongodb_connection_failed_at_startup", {
       message: err.message,
-      hint:    "Check MONGODB_URI in Server/.env — server will start without DB.",
+      hint:    "Check MONGODB_URI in Server/.env — /auth/* returns 503 until DB is reachable.",
     });
   }
 
   // ── 2. Bootstrap Express ──────────────────────────────────────────────────
   const app = createApp();
+
+  let apiHost = null;
+  try {
+    apiHost = new URL(aiConfig.apiBase).host;
+  } catch {
+    apiHost = "(invalid API_BASE_URL)";
+  }
+  logger.info("llm_http_route", {
+    endpointHost: apiHost,
+    testCasesModel: aiConfig.apiModel,
+    codeGenModel: aiConfig.codeGenApiModel,
+    note: "Test cases and executable code both use API_BASE_URL + API_KEY.",
+  });
 
   // ── 3. Start HTTP server ──────────────────────────────────────────────────
   const httpServer = app.listen(serverConfig.port, () => {
