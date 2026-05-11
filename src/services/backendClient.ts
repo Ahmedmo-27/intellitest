@@ -175,7 +175,7 @@ function throwAxiosDetail(err: unknown): never {
 	if (axios.isAxiosError(err)) {
 		if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
 			throw new Error(
-				'Cannot reach the Debuggo backend. Check your network, verify Settings → debuggo.backendUrl (hosted: https://intellitest-hyvw.onrender.com), or run the API locally (cd Server && npm start).'
+				'Cannot reach the Debuggo backend. Start the API (cd Server && npm start), or set Settings → debuggo.backendUrl to your server (default: http://localhost:3000; hosted: https://intellitest-hyvw.onrender.com).'
 			);
 		}
 		const fromBody = err.response?.data != null ? messageFromResponseData(err.response.data) : undefined;
@@ -221,11 +221,8 @@ export async function generateViaBackendV2(
 
 	// Intercept missing features before doing any heavy lifting
 	if (intentAnalysis && intentAnalysis.decision === 'none') {
-		const suggestions = intentAnalysis.suggestions && intentAnalysis.suggestions.length > 0 
-			? ` Did you mean to test: ${intentAnalysis.suggestions.join(', ')}?`
-			: '';
 		throw new Error(
-			`We couldn't find any code matching "${userPrompt}" in your project. Debuggo requires the feature to exist in your codebase before it can generate meaningful tests for it. Please check your spelling or verify the feature is implemented.${suggestions}`
+			`We couldn't find any code matching "${userPrompt}" in your project. Debuggo requires the feature to exist in your codebase before it can generate meaningful tests for it. Please check your spelling or verify the feature is implemented.`
 		);
 	}
 
@@ -250,7 +247,15 @@ export async function generateViaBackendV2(
 
 	onProgress?.('Building AI context…');
 
-	let data: { testCases?: ServerTestCase[]; meta?: unknown; error?: string; detail?: string; message?: string };
+	let data: {
+		testCases?: ServerTestCase[];
+		meta?: unknown;
+		error?: string;
+		detail?: string;
+		message?: string;
+		warning?: string;
+		action?: string;
+	};
 	try {
 		onProgress?.('Generating test cases…');
 		const res = await axios.post(`${root}/generate`, {
@@ -266,15 +271,35 @@ export async function generateViaBackendV2(
 		throwAxiosDetail(err);
 	}
 
-	if (data?.error || data?.message?.startsWith('AI')) {
-		throw new Error(typeof data.detail === 'string' && data.detail ? data.detail : (data.error ?? data.message ?? 'Unknown error'));
+	const aiFailureMsg =
+		typeof data?.message === 'string' && data.message.startsWith('AI') ? data.message : undefined;
+	if (data?.error || aiFailureMsg) {
+		throw new Error(
+			typeof data.detail === 'string' && data.detail
+				? data.detail
+				: (data.error ?? aiFailureMsg ?? data.message ?? 'Unknown error')
+		);
 	}
 
 	const raw = Array.isArray(data?.testCases) ? data.testCases : [];
 	const testCases = raw.map(mapServerCase);
 
 	if (testCases.length === 0) {
-		throw new Error('The backend returned no test cases. Check server logs and LLM configuration.');
+		const explain =
+			(typeof data?.message === 'string' && data.message.trim()) ||
+			(typeof data?.warning === 'string' && data.warning.trim());
+		const action = typeof data?.action === 'string' ? data.action : '';
+		if (
+			explain &&
+			(action === 'feature_not_found' ||
+				action === 'no_domain_match' ||
+				action === 'fallback')
+		) {
+			throw new Error(explain);
+		}
+		throw new Error(
+			'The backend returned no test cases. Check server logs and LLM configuration.'
+		);
 	}
 
 	const generateApiPayload =
@@ -302,7 +327,8 @@ export async function generateTestCodeViaBackend(
 		/** Optional workspace `.env.example` snippets — server uses them to align process.env names. */
 		localConfigHints?: string;
 	},
-	authToken?: string
+	authToken?: string,
+	onProgress?: (phase: string) => void
 ): Promise<string> {
 	const root = baseUrl.replace(/\/$/, '');
 	onProgress?.('Preparing test code…');

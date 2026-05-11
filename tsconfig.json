@@ -1,4 +1,6 @@
 {
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", "out"],
 	"compilerOptions": {
 		"module": "Node16",
 		"moduleResolution": "node16",

@@ -1,25 +1,49 @@
-import { normalize } from "./guardrailService.js";
-
-const NOISE_WORDS = new Set(["src", "client", "server", "index", "config", "test", "spec", "app", "main", "js", "tsx", "ts", "jsx", "module", "routes", "route", "router", "routers", "controller", "controllers", "service", "services", "model", "models", "component", "components", "util", "utils", "helper", "helpers", "page", "pages", "api", "view", "views", "endpoint", "endpoints"]);
+import {
+  normalizeSegment,
+  derivePrimaryStem,
+  phraseToTokens,
+  mergeSynonymAliases,
+  NOISE_WORDS,
+} from "./featureNormalization.js";
+import { detectFeatureRelationships } from "./relationshipDetectionEngine.js";
 
 const featureCache = new Map();
 const relationshipCache = new Map();
 
 function detectType(filePath) {
-  const lowerPath = filePath.toLowerCase();
-  if (lowerPath.includes("page.") || lowerPath.includes("component.")) return "ui";
-  if (lowerPath.includes("controller.")) return "backend";
-  if (lowerPath.includes("service.")) return "service";
-  if (lowerPath.includes("route.") || lowerPath.includes("api.")) return "api";
-  return "backend"; // default fallback
+  const lowerPath = filePath.toLowerCase().replace(/\\/g, "/");
+  if (
+    /\/pages\/|\/screens\/|\.page\.|(^|\/)page\.|\/components\/|\/widgets\/|\/layouts\/|\/views\/|screen\.|modal\./.test(
+      lowerPath,
+    )
+  ) {
+    return "ui";
+  }
+  if (/controller|handlers?\//.test(lowerPath)) return "backend";
+  if (/service\.|\/services\/|repository|repos?\//.test(lowerPath)) return "service";
+  if (/route|router|\.routes?\./.test(lowerPath)) return "api";
+  return "backend";
 }
 
-function normalizePhrase(phrase) {
-  const tokens = phrase.replace(/([a-z])([A-Z])/g, '$1 $2').split(/[-_\s]+/);
-  const cleanTokens = tokens.map(t => t.toLowerCase().trim()).filter(t => !NOISE_WORDS.has(t) && t.length > 1);
-  return cleanTokens.join(" ");
+function mergeTypePreference(existing, incoming) {
+  const rank = { ui: 4, api: 3, backend: 2, service: 1 };
+  const e = existing || "backend";
+  return rank[incoming] > rank[e] ? incoming : e;
 }
 
+function isLowValueFeature(normalizedName, frequency, fileCount) {
+  if (!normalizedName || normalizedName.length < 3) return true;
+  const tokens = normalizedName.split(/\s+/);
+  if (frequency <= 1 && fileCount <= 1 && tokens.length === 1 && tokens[0].length <= 4) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @param {object} projectMap
+ * @param {string|null} projectId — cache key; pass null to bypass
+ */
 export function extractFeatures(projectMap, projectId) {
   if (projectId && featureCache.has(projectId)) {
     return featureCache.get(projectId);
@@ -27,93 +51,115 @@ export function extractFeatures(projectMap, projectId) {
 
   const featureMap = new Map();
 
-  const processItems = (items) => {
+  const upsertFeature = (normalized, filePath, type, alias = null) => {
+    if (!normalized || NOISE_WORDS.has(normalized)) return;
+
+    if (!featureMap.has(normalized)) {
+      featureMap.set(normalized, {
+        name: normalized,
+        normalizedName: normalized,
+        type,
+        files: new Set(),
+        frequency: 0,
+        synonyms: new Set(),
+      });
+    }
+    const feature = featureMap.get(normalized);
+    feature.frequency += 1;
+    if (alias && alias !== normalized) feature.synonyms.add(alias);
+    if (filePath && (filePath.includes("/") || filePath.includes("\\") || filePath.includes("."))) {
+      feature.files.add(filePath);
+    }
+    feature.type = mergeTypePreference(feature.type, type);
+  };
+
+  const processItems = (items, preferredType = null) => {
     if (!Array.isArray(items)) return;
-    
+
     for (const item of items) {
-      const filePath = typeof item === "string" ? item : (item.path || item.name || "");
-      if (!filePath) continue;
+      const filePath = typeof item === "string" ? item : item?.path || item?.name || "";
+      if (!filePath || filePath.startsWith(".")) continue;
 
-      const type = detectType(filePath);
+      const type = preferredType || detectType(filePath);
+      const parts = filePath.split(/[/\\]+/);
 
-      // Extract parts by splitting by / \
-      const parts = filePath.split(/[\/\\\\]+/);
-      
-      for (let p of parts) {
-        // remove extensions (e.g. Foo.tsx → Foo)
-        p = p.replace(/\.[a-zA-Z0-9]+$/, "");
-        // Skip dotfiles / hidden dirs (.env → "" after strip, or ".env" left from multi-dot names)
-        if (!p || p.startsWith(".") || NOISE_WORDS.has(p.toLowerCase())) continue;
+      for (let part of parts) {
+        part = part.replace(/\.[a-zA-Z0-9]+$/, "");
+        if (!part || part.startsWith(".") || NOISE_WORDS.has(part.toLowerCase())) continue;
 
-        const normalized = normalizePhrase(p);
-        if (!normalized || normalized.length < 3) continue;
-
-        if (!featureMap.has(normalized)) {
-          featureMap.set(normalized, {
-            name: normalized,
-            normalizedName: normalized,
-            type: type,
-            files: new Set(),
-            frequency: 0
-          });
-        }
-        
-        const feature = featureMap.get(normalized);
-        feature.frequency += 1;
-        
-        if (filePath.includes("/") || filePath.includes("\\") || filePath.includes(".")) {
-           feature.files.add(filePath);
-        }
+        const normalized = normalizeSegment(part);
+        if (!normalized) continue;
+        upsertFeature(normalized, filePath, type, part !== normalized ? part : null);
       }
     }
   };
 
-  processItems(projectMap.routes);
-  processItems(projectMap.controllers);
-  processItems(projectMap.modules);
-  processItems(projectMap.priorityFiles || projectMap.files);
+  processItems(projectMap.routes, "api");
+  processItems(projectMap.controllers, "backend");
+  processItems(projectMap.modules, null);
+  processItems(projectMap.priorityFiles || projectMap.files, null);
 
-  // Hardcode explicit required features to ensure phrase preservation
-  const explicitFeatures = ["add to cart", "shopping cart", "product page"];
-  for (const ef of explicitFeatures) {
-      if (Array.from(featureMap.keys()).some(k => k.includes(ef) || ef.includes(k))) {
-          if (!featureMap.has(ef)) {
-            featureMap.set(ef, {
-                name: ef,
-                normalizedName: ef,
-                type: "ui",
-                files: new Set(),
-                frequency: 1
-            });
-          }
-      }
+  const explicitPairs = [
+    ["add to cart", "ui"],
+    ["shopping cart", "ui"],
+    ["product page", "ui"],
+  ];
+  for (const [phrase, t] of explicitPairs) {
+    const key = phrase.toLowerCase();
+    const exists = [...featureMap.keys()].some((k) => k.includes(key) || key.includes(k));
+    if (exists && !featureMap.has(key)) {
+      featureMap.set(key, {
+        name: phrase,
+        normalizedName: key,
+        type: t,
+        files: new Set(),
+        frequency: 1,
+        synonyms: new Set(),
+      });
+    }
   }
 
-  const features = Array.from(featureMap.values()).map(f => {
-    let importanceScore = 0.5; // default
-    
-    const explicitScores = {
-        "checkout": 1.0,
-        "cart": 0.9,
-        "product": 0.8
-    };
+  const explicitScores = {
+    checkout: 1,
+    "shopping cart": 0.95,
+    cart: 0.9,
+    payment: 1,
+    auth: 0.95,
+    product: 0.85,
+    order: 0.95,
+  };
 
+  const features = [];
+  for (const f of featureMap.values()) {
+    const fileCount = f.files.size;
+    if (isLowValueFeature(f.normalizedName, f.frequency, fileCount)) continue;
+
+    let importanceScore = 0.5;
     if (explicitScores[f.normalizedName] !== undefined) {
-        importanceScore = explicitScores[f.normalizedName];
-    } else if (f.normalizedName.includes("checkout") || f.normalizedName.includes("payment")) {
-        importanceScore = 1.0;
-    } else if (f.normalizedName.includes("auth") || f.normalizedName.includes("login")) {
-        importanceScore = 0.95;
+      importanceScore = explicitScores[f.normalizedName];
+    } else if (/checkout|payment/.test(f.normalizedName)) {
+      importanceScore = 1;
+    } else if (/auth|login|session/.test(f.normalizedName)) {
+      importanceScore = 0.95;
+    } else if (/cart|order|product/.test(f.normalizedName)) {
+      importanceScore = 0.82;
     }
 
-    return {
+    const tokens = phraseToTokens(f.normalizedName);
+    const primaryStem = derivePrimaryStem(f.normalizedName);
+    const synonyms = mergeSynonymAliases(f.normalizedName, [...f.synonyms]);
+
+    features.push({
       name: f.name,
       normalizedName: f.normalizedName,
-      files: Array.from(f.files),
+      files: [...f.files],
       type: f.type,
-      importanceScore: importanceScore
-    };
-  });
+      importanceScore,
+      tokens,
+      primaryStem,
+      synonyms,
+    });
+  }
 
   if (projectId) {
     featureCache.set(projectId, features);
@@ -122,68 +168,32 @@ export function extractFeatures(projectMap, projectId) {
   return features;
 }
 
-export function buildFeatureRelationships(features, projectId) {
-  if (projectId && relationshipCache.has(projectId)) {
-    return relationshipCache.get(projectId);
+/**
+ * @param {object[]} features
+ * @param {object} projectMap — routes/modules/files improve linkage + file evidence
+ * @param {string|null} projectId — optional cache key
+ */
+export function buildFeatureRelationships(features, projectMap = {}, projectId = null) {
+  const cacheKey = projectId ? `${projectId}:rel` : null;
+  if (cacheKey && relationshipCache.has(cacheKey)) {
+    return relationshipCache.get(cacheKey);
   }
 
-  const relationships = [];
-  const relationshipSet = new Set();
-  const featureNames = new Set(features.map(f => f.normalizedName));
+  const rels = detectFeatureRelationships(projectMap || {}, features);
 
-  const addRelation = (source, target, type) => {
-      if (source === target) return; // No self loops
-      if (!featureNames.has(source) || !featureNames.has(target)) return; // No unknown features
-      
-      const key = `${source}|${target}|${type}`;
-      if (!relationshipSet.has(key)) {
-          relationshipSet.add(key);
-          relationships.push({ source, target, type });
-      }
-  };
-
-  const staticRules = [
-    { source: "cart", target: "product", type: "depends_on" },
-    { source: "checkout", target: "cart", type: "depends_on" },
-    { source: "product page", target: "product", type: "ui_for" },
-    { source: "checkout", target: "payment", type: "triggers" },
-    { source: "login", target: "auth", type: "belongs_to" }
-  ];
-
-  for (const f of features) {
-    const name = f.normalizedName;
-    for (const rule of staticRules) {
-      if (name.includes(rule.source) && featureNames.has(rule.target)) {
-          addRelation(name, rule.target, rule.type);
-      }
-      if (name.includes(rule.target) && featureNames.has(rule.source)) {
-          addRelation(rule.source, name, rule.type);
-      }
-    }
+  if (cacheKey) {
+    relationshipCache.set(cacheKey, rels);
   }
 
-  // Dynamic linking based on files
-  for (let i = 0; i < features.length; i++) {
-      for (let j = i + 1; j < features.length; j++) {
-          const f1 = features[i];
-          const f2 = features[j];
-          
-          const sharedFiles = f1.files.filter(file => f2.files.includes(file));
+  return rels;
+}
 
-          if (sharedFiles.length > 0) {
-              if (f1.type === "ui" && f2.type !== "ui") addRelation(f1.normalizedName, f2.normalizedName, "ui_for");
-              else if (f2.type === "ui" && f1.type !== "ui") addRelation(f2.normalizedName, f1.normalizedName, "ui_for");
-              else {
-                  addRelation(f1.normalizedName, f2.normalizedName, "depends_on");
-                  addRelation(f2.normalizedName, f1.normalizedName, "depends_on");
-              }
-          }
-      }
-  }
-
+export function clearFeatureCaches(projectId) {
   if (projectId) {
-    relationshipCache.set(projectId, relationships);
+    featureCache.delete(projectId);
+    relationshipCache.delete(`${projectId}:rel`);
+  } else {
+    featureCache.clear();
+    relationshipCache.clear();
   }
-
-  return relationships;
 }

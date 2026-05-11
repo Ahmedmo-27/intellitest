@@ -22,17 +22,73 @@ import { FeatureCoverage }     from "../models/FeatureCoverage.js";
 import { logger }         from "../utils/logger.js";
 import { unionArrays }    from "../utils/helpers.js";
 
+/**
+ * Older deployments stored Feature rows without userId/normalizedName (testScore, description, …).
+ * Map them to the shape expected by feature intelligence / guardrails.
+ */
+function normalizeLegacyFeatureRow(doc) {
+  if (!doc) return doc;
+  const normalizedName =
+    doc.normalizedName ||
+    String(doc.name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  let importanceScore = 0.5;
+  if (typeof doc.importanceScore === "number") {
+    importanceScore = doc.importanceScore;
+  } else if (typeof doc.testScore === "number") {
+    importanceScore = Math.min(1, Math.max(0, doc.testScore / 100));
+  }
+  return {
+    ...doc,
+    normalizedName,
+    importanceScore,
+    files: Array.isArray(doc.files) ? doc.files : [],
+    type: doc.type || "ui",
+  };
+}
+
 // ── Project ────────────────────────────────────────────────────────────────────
 
 /**
  * Find-or-create a project document for the given projectId.
  * Uses $setOnInsert so an existing document is never mutated.
  *
+ * Claims legacy rows that only had projectId (no userId) when the same workspace is used logged-in.
+ *
  * @param {string} projectId
  * @param {object} projectMap — normalised payload from validateGenerate middleware
  * @returns {Promise<object>} lean project document
  */
 export async function upsertProject(userId, projectId, projectMap) {
+  if (userId) {
+    const legacy = await Project.findOne({
+      projectId,
+      $or: [{ userId: { $exists: false } }, { userId: null }],
+    }).exec();
+
+    if (legacy && !legacy.userId) {
+      const claimed = await Project.findOneAndUpdate(
+        { _id: legacy._id },
+        {
+          $set: {
+            userId,
+            name: projectMap.name || projectMap.type || legacy.name || "Unnamed Project",
+            type: projectMap.type || legacy.type || "unknown",
+            techStack: {
+              language: projectMap.language ?? legacy.techStack?.language ?? "",
+              framework: projectMap.framework ?? legacy.techStack?.framework ?? "",
+              extras: Array.isArray(legacy.techStack?.extras) ? legacy.techStack.extras : [],
+            },
+          },
+        },
+        { returnDocument: "after" },
+      );
+      return claimed.toObject();
+    }
+  }
+
   const project = await Project.findOneAndUpdate(
     { userId, projectId },
     {
@@ -227,13 +283,38 @@ export async function saveGeneration(opts) {
 // ── Features ───────────────────────────────────────────────────────────────────
 
 /**
- * Load all features for a project, sorted by testScore descending.
+ * Load all features for a project.
+ * Prefers tenant-scoped rows ({ userId, projectId }); falls back to legacy docs that only had projectId.
  *
  * @param {string} projectId
  * @returns {Promise<object[]>}
  */
 export async function loadFeatures(userId, projectId) {
-  return Feature.find({ userId, projectId }).sort({ testScore: -1 }).lean();
+  let rows = [];
+  if (userId) {
+    rows = await Feature.find({ userId, projectId }).sort({ importanceScore: -1 }).lean();
+  }
+  if (rows.length === 0 && projectId) {
+    rows = await Feature.find({
+      projectId,
+      $or: [{ userId: { $exists: false } }, { userId: null }],
+    })
+      .sort({ importanceScore: -1, testScore: -1, updatedAt: -1 })
+      .lean();
+  }
+  return rows.map(normalizeLegacyFeatureRow);
+}
+
+/**
+ * Load stored feature relationship edges for impact / dependency analysis.
+ *
+ * @param {string} userId
+ * @param {string} projectId
+ * @returns {Promise<object[]>}
+ */
+export async function loadFeatureRelationships(userId, projectId) {
+  if (!userId) return [];
+  return FeatureRelationship.find({ userId, projectId }).lean();
 }
 
 /**
@@ -242,61 +323,33 @@ export async function loadFeatures(userId, projectId) {
  * @param {string} projectId
  * @param {Array<object>} features
  */
-function dedupeFeatureBulkOps(userId, projectId, features) {
-  const merged = new Map();
-  for (const f of features) {
-    const key = String(f.normalizedName ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-    if (!key || key.startsWith(".")) continue;
+export async function syncFeatureIntelligence(userId, projectId, features, relationships) {
+  if (!userId) return;
 
-    const files = Array.isArray(f.files) ? f.files : [];
-    const existing = merged.get(key);
-    if (!existing) {
-      merged.set(key, {
-        canonicalName: key,
-        displayName: String(f.name ?? key).trim() || key,
-        type: f.type ?? "ui",
-        importanceScore: f.importanceScore ?? 0.5,
-        files: new Set(files),
-      });
-    } else {
-      for (const file of files) existing.files.add(file);
-      existing.importanceScore = Math.max(
-        existing.importanceScore,
-        f.importanceScore ?? 0.5,
-      );
-    }
+  if (features && features.length > 0) {
+    const ops = features.map((f) => ({
+      updateOne: {
+        filter: { userId, projectId, normalizedName: f.normalizedName },
+        update: {
+          $set: {
+            userId,
+            projectId,
+            name: f.name,
+            normalizedName: f.normalizedName,
+            files: Array.isArray(f.files) ? f.files : [],
+            type: f.type ?? "backend",
+            importanceScore: typeof f.importanceScore === "number" ? f.importanceScore : 0.5,
+            synonyms: Array.isArray(f.synonyms) ? f.synonyms : [],
+          },
+        },
+        upsert: true,
+      },
+    }));
+    await Feature.bulkWrite(ops, { ordered: false });
   }
 
-  return [...merged.values()].map((entry) => ({
-    updateOne: {
-      filter: { userId, projectId, normalizedName: entry.canonicalName },
-      update: {
-        $set: {
-          userId,
-          projectId,
-          name: entry.displayName,
-          normalizedName: entry.canonicalName,
-          files: [...entry.files],
-          type: entry.type,
-          importanceScore: entry.importanceScore,
-        },
-      },
-      upsert: true,
-    },
-  }));
-}
-
-function dedupeRelationshipBulkOps(userId, projectId, relationships) {
-  const seen = new Set();
-  const relOps = [];
-  for (const r of relationships) {
-    const k = `${r.source}|${r.target}|${r.type}|${projectId}|${userId}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    relOps.push({
+  if (relationships && relationships.length > 0) {
+    const relOps = relationships.map((r) => ({
       updateOne: {
         filter: {
           userId,
@@ -312,28 +365,15 @@ function dedupeRelationshipBulkOps(userId, projectId, relationships) {
             source: r.source,
             target: r.target,
             type: r.type,
+            confidence: typeof r.confidence === "number" ? r.confidence : 0.5,
+            evidence: Array.isArray(r.evidence) ? r.evidence : [],
+            files: Array.isArray(r.files) ? r.files : [],
           },
         },
         upsert: true,
       },
-    });
-  }
-  return relOps;
-}
-
-export async function syncFeatureIntelligence(userId, projectId, features, relationships) {
-  if (features && features.length > 0) {
-    const ops = dedupeFeatureBulkOps(userId, projectId, features);
-    if (ops.length > 0) {
-      await Feature.bulkWrite(ops, { ordered: false });
-    }
-  }
-
-  if (relationships && relationships.length > 0) {
-    const relOps = dedupeRelationshipBulkOps(userId, projectId, relationships);
-    if (relOps.length > 0) {
-      await FeatureRelationship.bulkWrite(relOps, { ordered: false });
-    }
+    }));
+    await FeatureRelationship.bulkWrite(relOps, { ordered: false });
   }
 }
 

@@ -1,0 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.appConfig = void 0;
+const core_1 = require("@angular/core");
+const router_1 = require("@angular/router");
+const app_routes_1 = require("./app.routes");
+const platform_browser_1 = require("@angular/platform-browser");
+exports.appConfig = {
+    providers: [
+        (0, core_1.provideBrowserGlobalErrorListeners)(),
+        (0, router_1.provideRouter)(app_routes_1.routes, (0, router_1.withInMemoryScrolling)({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' })),
+        (0, platform_browser_1.provideClientHydration)((0, platform_browser_1.withEventReplay)()),
+    ],
+};
+//# sourceMappingURL=app.config.js.map

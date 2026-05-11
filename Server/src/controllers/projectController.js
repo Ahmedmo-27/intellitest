@@ -12,7 +12,11 @@ import {
   loadMessages,
   loadContext,
   loadFeatures,
+  loadFeatureRelationships,
+  syncFeatureIntelligence,
 } from "../services/projectService.js";
+import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
+import { analyzeFeatureImpact as analyzeFeatureImpactGraph } from "../services/featureGraphService.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -65,14 +69,11 @@ export async function initProject(req, res) {
 
 /**
  * POST /project/:projectId/sync
- * 
- * Called by the extension when it first loads (or on manual reset) to 
- * send the entire project's file list. This builds the global 
+ *
+ * Called by the extension when it first loads (or on manual reset) to
+ * send the entire project's file list. This builds the global
  * Feature Intelligence Graph in MongoDB once.
  */
-import { extractFeatures, buildFeatureRelationships } from "../services/featureExtractionService.js";
-import { syncFeatureIntelligence } from "../services/projectService.js";
-
 export async function syncProject(req, res) {
   const { projectId } = req.params;
   const { files } = req.body;
@@ -91,7 +92,7 @@ export async function syncProject(req, res) {
     // Extract features from the entire project file list
     const mockMap = { files };
     const extractedFeatures = extractFeatures(mockMap, null);
-    const relationships = buildFeatureRelationships(extractedFeatures, null);
+    const relationships = buildFeatureRelationships(extractedFeatures, mockMap, null);
 
     if (userId) {
       await syncFeatureIntelligence(userId, projectId, extractedFeatures, relationships);
@@ -105,5 +106,73 @@ export async function syncProject(req, res) {
   } catch (err) {
     logger.error("project_sync_failed", { projectId, message: err.message });
     return res.status(500).json({ error: "Failed to sync project features." });
+  }
+}
+
+/**
+ * POST /project/:projectId/feature-impact
+ *
+ * Body: { "feature": "<name>" } or { "featureName": "<name>" }
+ * Returns dependency-aware impact summary using the stored feature graph.
+ */
+export async function analyzeFeatureImpact(req, res) {
+  const { projectId } = req.params;
+  const raw =
+    typeof req.body?.feature === "string"
+      ? req.body.feature
+      : typeof req.body?.featureName === "string"
+        ? req.body.featureName
+        : "";
+
+  if (!projectId || typeof projectId !== "string" || projectId.trim() === "") {
+    return res.status(400).json({
+      source: "backend",
+      type: "ValidationError",
+      message: "projectId param is required.",
+    });
+  }
+
+  const featureName = raw.trim();
+  if (!featureName) {
+    return res.status(400).json({
+      source: "backend",
+      type: "ValidationError",
+      message: 'Request body must include a non-empty "feature" or "featureName" string.',
+    });
+  }
+
+  try {
+    const userId = req.userId || req.user?.id;
+    const [relRows, features] = await Promise.all([
+      loadFeatureRelationships(userId, projectId),
+      loadFeatures(userId, projectId),
+    ]);
+
+    const relationships = (relRows || []).map((r) => ({
+      source: r.source,
+      target: r.target,
+      type: r.type,
+      confidence: r.confidence,
+    }));
+
+    const featuresByName = {};
+    for (const f of features || []) {
+      if (f.normalizedName) {
+        featuresByName[f.normalizedName] = {
+          importanceScore:
+            typeof f.importanceScore === "number" ? f.importanceScore : 0.5,
+        };
+      }
+    }
+
+    const result = analyzeFeatureImpactGraph(featureName, relationships, featuresByName);
+    return res.json(result);
+  } catch (err) {
+    logger.error("feature_impact_failed", { projectId, message: err.message });
+    return res.status(500).json({
+      source: "backend",
+      type: "InternalError",
+      message: "Failed to analyze feature impact.",
+    });
   }
 }
